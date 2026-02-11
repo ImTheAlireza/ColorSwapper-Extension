@@ -5,10 +5,6 @@ var undoHistory = [];
 var MAX_UNDO_HISTORY = 10;
 var isAutoRescan = false;
 
-// ══════════════════════════════════════
-// VERSION & AUTO-UPDATE
-// ══════════════════════════════════════
-
 var CURRENT_VERSION = '1.0.0';
 var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/version.json';
 
@@ -24,11 +20,8 @@ document.getElementById('authorLink').addEventListener('click', function (e) {
     }
 });
 
-
-// Node.js modules (available in CEP)
 var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
 
-// ── Get clean extension path ──
 function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
     var clean = raw.replace(/\\/g, '/');
@@ -50,7 +43,6 @@ function getCleanExtPath() {
     return clean;
 }
 
-// ── Version comparison ──
 function isNewerVersion(remote, local) {
     var r = remote.split('.');
     var l = local.split('.');
@@ -63,7 +55,6 @@ function isNewerVersion(remote, local) {
     return false;
 }
 
-// ── Fetch JSON from URL ──
 function fetchJSON(url, callback) {
     try {
         var xhr = new XMLHttpRequest();
@@ -90,7 +81,6 @@ function fetchJSON(url, callback) {
     }
 }
 
-// ── Fetch text content from URL ──
 function fetchText(url, callback) {
     try {
         var xhr = new XMLHttpRequest();
@@ -113,7 +103,6 @@ function fetchText(url, callback) {
     }
 }
 
-// ── Check for updates (runs on load) ──
 function checkForUpdates() {
     if (!VERSION_CHECK_URL || VERSION_CHECK_URL.indexOf('YOUR_USERNAME') !== -1) {
         log('Update check skipped — URL not configured');
@@ -143,7 +132,6 @@ function checkForUpdates() {
     });
 }
 
-// ── Show update banner ──
 var pendingUpdateData = null;
 
 function showUpdateBanner(data) {
@@ -154,7 +142,6 @@ function showUpdateBanner(data) {
     document.getElementById('updateBanner').classList.remove('hidden');
 }
 
-// ── Perform update ──
 function performUpdate() {
     if (!pendingUpdateData) return;
     if (!cepFS) {
@@ -231,8 +218,6 @@ function performUpdate() {
     }
 }
 
-
-// ── Write downloaded files to disk ──
 function writeUpdateFiles(downloaded, extPath, btn) {
     btn.textContent = 'Installing...';
 
@@ -291,23 +276,19 @@ function ensureDirCEP(dirPath) {
     }
 }
 
-// ── Update button click ──
 document.getElementById('updateBtn').addEventListener('click', function () {
     performUpdate();
 });
 
-// ── Dismiss update banner ──
 document.getElementById('dismissUpdate').addEventListener('click', function () {
     document.getElementById('updateBanner').classList.add('hidden');
     pendingUpdateData = null;
 });
 
-// ── Reload button ──
 document.getElementById('reloadBtn').addEventListener('click', function () {
     location.reload();
 });
 
-// ── About modal ──
 document.getElementById('aboutBtn').addEventListener('click', function () {
     document.getElementById('currentVersionLabel').textContent = CURRENT_VERSION;
     document.getElementById('aboutModal').classList.remove('hidden');
@@ -317,14 +298,12 @@ document.getElementById('closeAbout').addEventListener('click', function () {
     document.getElementById('aboutModal').classList.add('hidden');
 });
 
-// Close modal on overlay click
 document.getElementById('aboutModal').addEventListener('click', function (e) {
     if (e.target === this) {
         this.classList.add('hidden');
     }
 });
 
-// ── GitHub link in about ──
 document.getElementById('aboutGithubLink').addEventListener('click', function () {
     var url = this.getAttribute('data-url');
     if (url) {
@@ -337,7 +316,6 @@ document.getElementById('aboutGithubLink').addEventListener('click', function ()
     }
 });
 
-// ── Run update check on load (with delay) ──
 setTimeout(function () {
     checkForUpdates();
 }, 3000);
