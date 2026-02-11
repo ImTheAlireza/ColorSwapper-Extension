@@ -1,0 +1,11 @@
+{
+    "version": "1.0.0",
+    "changelog": "Initial release",
+    "files": [
+        "app.js",
+        "style.css",
+        "index.html",
+        "host/hostScript.jsx"
+    ],
+    "baseUrl": "https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/"
+}
