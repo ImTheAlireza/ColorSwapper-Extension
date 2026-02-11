@@ -1,4 +1,13 @@
 #!/bin/bash
+
+
+if [ ! -x "$0" ]; then
+    chmod +x "$0"
+    exec "$0" "$@"
+fi
+
+cd "$(dirname "$0")"
+
 clear
 
 echo ""
@@ -7,7 +16,7 @@ echo "   Color Swapper - Installer"
 echo "  ========================================"
 echo ""
 
-BASE_URL="https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main"
+BASE_URL="https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main"
 EXT_DIR="$HOME/Library/Application Support/Adobe/CEP/extensions/ColorSwapper"
 
 echo "  Install path:"
@@ -15,11 +24,9 @@ echo "  $EXT_DIR"
 echo ""
 
 echo "  [1/4] Creating folders..."
-
 mkdir -p "$EXT_DIR/client"
 mkdir -p "$EXT_DIR/host"
 mkdir -p "$EXT_DIR/CSXS"
-
 echo "        Done."
 echo ""
 
@@ -62,6 +69,8 @@ if [ $FAIL -gt 0 ]; then
     echo "  [!] $FAIL file(s) failed to download."
     echo "      Check your internet connection and try again."
     echo ""
+    echo "  Press any key to close..."
+    read -n 1 -s
     exit 1
 fi
 
@@ -69,11 +78,9 @@ echo "        All files downloaded."
 echo ""
 
 echo "  [3/4] Enabling unsigned extensions..."
-
 for v in 8 9 10 11 12; do
     defaults write com.adobe.CSXS.$v PlayerDebugMode 1 2>/dev/null
 done
-
 echo "        Done."
 echo ""
 
@@ -86,3 +93,5 @@ echo "   2. Reopen After Effects"
 echo "   3. Go to Window > Extensions > Color Swapper"
 echo "  ========================================"
 echo ""
+echo "  Press any key to close..."
+read -n 1 -s
