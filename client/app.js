@@ -33,14 +33,14 @@ function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
     var clean = raw.replace(/\\/g, '/');
     
-    // Remove file:// or file:/// prefix
+
     if (clean.indexOf('file:///') === 0) {
         clean = clean.replace('file:///', '');
     } else if (clean.indexOf('file://') === 0) {
         clean = clean.replace('file://', '');
     }
     
-    // Remove trailing slash
+
     if (clean.charAt(clean.length - 1) === '/') {
         clean = clean.substring(0, clean.length - 1);
     }
