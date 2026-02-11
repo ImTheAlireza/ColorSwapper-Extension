@@ -31,12 +31,12 @@ var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
 // ── Get clean extension path ──
 function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
-    // cep.fs uses the raw path format directly
     var clean = raw.replace(/\\/g, '/');
-    // Remove trailing slash
     if (clean.charAt(clean.length - 1) === '/') {
         clean = clean.substring(0, clean.length - 1);
     }
+    log('Raw ext path: ' + raw);
+    log('Clean ext path: ' + clean);
     return clean;
 }
 
@@ -170,25 +170,38 @@ function performUpdate() {
     log('Updating from ' + baseUrl);
     log('Extension path: ' + extPath);
 
-    var downloaded = {};
+    var downloaded = [];
     var completed = 0;
     var total = files.length;
     var errors = [];
 
     for (var i = 0; i < files.length; i++) {
-        (function (fileName) {
-            var url = baseUrl + fileName;
-            log('Downloading: ' + fileName);
+        (function (fileEntry) {
+            // Support both string and object format
+            var remotePath, localPath;
+            if (typeof fileEntry === 'string') {
+                remotePath = fileEntry;
+                localPath = fileEntry;
+            } else {
+                remotePath = fileEntry.remote;
+                localPath = fileEntry.local;
+            }
+
+            var url = baseUrl + remotePath;
+            log('Downloading: ' + remotePath);
 
             fetchText(url, function (err, content) {
                 completed++;
 
                 if (err) {
-                    errors.push(fileName + ': ' + err.message);
-                    log('Download failed: ' + fileName + ' — ' + err.message);
+                    errors.push(remotePath + ': ' + err.message);
+                    log('Download failed: ' + remotePath + ' — ' + err.message);
                 } else {
-                    downloaded[fileName] = content;
-                    log('Downloaded: ' + fileName + ' (' + content.length + ' bytes)');
+                    downloaded.push({
+                        localPath: localPath,
+                        content: content
+                    });
+                    log('Downloaded: ' + remotePath + ' (' + content.length + ' bytes)');
                 }
 
                 btn.textContent = 'Downloading ' + completed + '/' + total;
@@ -208,33 +221,36 @@ function performUpdate() {
     }
 }
 
+
 // ── Write downloaded files to disk ──
 function writeUpdateFiles(downloaded, extPath, btn) {
     btn.textContent = 'Installing...';
 
     var writeErrors = [];
 
-    for (var fileName in downloaded) {
+    for (var i = 0; i < downloaded.length; i++) {
+        var entry = downloaded[i];
         try {
-            // Build full path with proper separator
-            var filePath = extPath + '/' + fileName;
-            // Normalize slashes
+            var filePath = extPath + '/' + entry.localPath;
             filePath = filePath.replace(/\\/g, '/');
-            
-            // Ensure directory exists
+            // Remove any double slashes
+            filePath = filePath.replace(/\/\//g, '/');
+
             var dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
             ensureDirCEP(dirPath);
 
-            var result = cepFS.writeFile(filePath, downloaded[fileName]);
+            log('Writing to: ' + filePath);
+
+            var result = cepFS.writeFile(filePath, entry.content);
             if (result.err !== 0) {
-                writeErrors.push(fileName + ': error code ' + result.err);
-                log('Write failed: ' + fileName + ' — error ' + result.err);
+                writeErrors.push(entry.localPath + ': error code ' + result.err);
+                log('Write failed: ' + entry.localPath + ' — error ' + result.err);
             } else {
                 log('Wrote: ' + filePath);
             }
         } catch (e) {
-            writeErrors.push(fileName + ': ' + e.message);
-            log('Write failed: ' + fileName + ' — ' + e.message);
+            writeErrors.push(entry.localPath + ': ' + e.message);
+            log('Write failed: ' + entry.localPath + ' — ' + e.message);
         }
     }
 
@@ -252,7 +268,6 @@ function writeUpdateFiles(downloaded, extPath, btn) {
         }, 1500);
     }
 }
-
 
 function ensureDirCEP(dirPath) {
     var readResult = cepFS.readdir(dirPath);
