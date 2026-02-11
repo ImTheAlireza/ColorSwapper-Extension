@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Color Swapper</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="container">
+
+        <div class="header" id="header">
+            <h1>⬡ Color Swapper</h1>
+            <p class="subtitle">Scan • Pick • Swap</p>
+        </div>
+
+        <div class="options">
+            <div class="options-grid">
+                <div class="options-col">
+                    <label class="toggle-wrap">
+                        <input type="checkbox" id="includePrecomps">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Include Precomps</span>
+                    </label>
+                    <label class="toggle-wrap">
+                        <input type="checkbox" id="matchSimilar">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Similar ±</span>
+                        <input type="number" id="similarThreshold" class="threshold-input" value="10" min="1" max="100">
+                        <span class="toggle-label">%</span>
+                    </label>
+                    <label class="toggle-wrap">
+                        <input type="checkbox" id="showLogs">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Show Logs</span>
+                    </label>
+                </div>
+                <div class="options-col">
+                    <label class="toggle-wrap">
+                        <input type="checkbox" id="selectedOnly">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-label">Selected Layers Only</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <button id="scanBtn" class="btn-primary">
+            <span class="btn-icon">⟳</span>
+            <span class="btn-text">Scan Colors</span>
+        </button>
+
+        <!-- Empty state -->
+        <div id="emptyState" class="empty-state">
+            <div class="empty-icon">🎨</div>
+            <p>Open a comp and hit Scan</p>
+            <p class="empty-hint">Finds colors in shapes, text, solids & effects</p>
+        </div>
+
+        <!-- Summary bar -->
+        <div id="summary" class="summary hidden">
+            <span id="summaryText">0 colors found</span>
+            <button id="resetAllBtn" class="btn-reset-all">↺ Reset All</button>
+        </div>
+
+        <!-- Palette Bar -->
+        <div id="paletteBar" class="palette-bar hidden">
+            <button id="savePaletteBtn" class="btn-palette">💾 Save</button>
+            <button id="loadPaletteBtn" class="btn-palette">📂 Load</button>
+
+            <!-- Save Input (hidden by default) -->
+            <div id="saveInput" class="save-input hidden">
+                <input type="text" id="paletteName" placeholder="Palette name..." maxlength="30">
+                <button id="saveConfirmBtn" class="btn-save-confirm">Save</button>
+                <button id="saveCancelBtn" class="btn-save-cancel">✕</button>
+            </div>
+
+            <!-- Load Dropdown (hidden by default) -->
+            <div id="paletteDropdown" class="palette-dropdown hidden">
+                <div id="paletteList" class="palette-list">
+                    <!-- Palette entries appear here -->
+                </div>
+            </div>
+        </div>
+		
+		
+        <div id="colorList" class="color-grid"></div>
+
+        <!-- Swap section -->
+        <div id="swapWrap" class="swap-wrap hidden">
+            <div id="swapCount" class="swap-count">0 colors to swap</div>
+            <button id="swapBtn" class="btn-swap" disabled>
+                <span class="btn-icon">⇄</span>
+                Swap Colors
+            </button>
+            <button id="undoBtn" class="btn-undo hidden" disabled>
+                <span class="btn-icon">↶</span>
+                Undo
+            </button>
+        </div>
+
+        <!-- Status -->
+        <div id="status" class="status"></div>
+
+        <!-- Debug log -->
+        <pre id="debug" class="debug-log hidden"></pre>
+
+    </div>
+
+    <script src="CSInterface.js"></script>
+    <script src="app.js"></script>
+
+</body>
+</html>
