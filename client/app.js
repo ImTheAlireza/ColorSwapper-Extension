@@ -10,7 +10,7 @@ var isAutoRescan = false;
 // ══════════════════════════════════════
 
 var CURRENT_VERSION = '1.0.0';
-var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/version.json';
+var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/version.json';
 
 document.getElementById('authorLink').addEventListener('click', function (e) {
     e.preventDefault();
@@ -26,18 +26,14 @@ document.getElementById('authorLink').addEventListener('click', function (e) {
 
 
 // Node.js modules (available in CEP)
-var nodeFS = (typeof require !== 'undefined') ? require('fs') : null;
-var nodePath = (typeof require !== 'undefined') ? require('path') : null;
+var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
 
 // ── Get clean extension path ──
 function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
-    var clean = decodeURIComponent(raw);
-    clean = clean.replace(/^file:\/{2,3}/, '');
-    // Windows: /C:/Users/... → C:/Users/...
-    if (/^\/[A-Za-z]:\//.test(clean)) {
-        clean = clean.substring(1);
-    }
+    // cep.fs uses the raw path format directly
+    var clean = raw.replace(/\\/g, '/');
+    // Remove trailing slash
     if (clean.charAt(clean.length - 1) === '/') {
         clean = clean.substring(0, clean.length - 1);
     }
@@ -151,8 +147,8 @@ function showUpdateBanner(data) {
 // ── Perform update ──
 function performUpdate() {
     if (!pendingUpdateData) return;
-    if (!nodeFS || !nodePath) {
-        showToast('Update not supported in this environment');
+    if (!cepFS) {
+        showToast('Filesystem not available');
         return;
     }
 
@@ -167,7 +163,6 @@ function performUpdate() {
 
     var extPath = getCleanExtPath();
     var btn = document.getElementById('updateBtn');
-    var banner = document.getElementById('updateBanner');
 
     btn.disabled = true;
     btn.textContent = 'Downloading...';
@@ -180,7 +175,6 @@ function performUpdate() {
     var total = files.length;
     var errors = [];
 
-    // Phase 1: Download all files to memory
     for (var i = 0; i < files.length; i++) {
         (function (fileName) {
             var url = baseUrl + fileName;
@@ -199,16 +193,13 @@ function performUpdate() {
 
                 btn.textContent = 'Downloading ' + completed + '/' + total;
 
-                // All done?
                 if (completed === total) {
                     if (errors.length > 0) {
                         btn.textContent = 'Update Failed';
-                        btn.disabled = false;
                         setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 2000);
                         setStatus('Download failed: ' + errors.join(', '), 'error');
                         log('Update aborted — download errors');
                     } else {
-                        // Phase 2: Write all files
                         writeUpdateFiles(downloaded, extPath, btn);
                     }
                 }
@@ -225,15 +216,22 @@ function writeUpdateFiles(downloaded, extPath, btn) {
 
     for (var fileName in downloaded) {
         try {
-            var filePath = nodePath.join(extPath, fileName);
-            var dir = nodePath.dirname(filePath);
-
+            // Build full path with proper separator
+            var filePath = extPath + '/' + fileName;
+            // Normalize slashes
+            filePath = filePath.replace(/\\/g, '/');
+            
             // Ensure directory exists
-            ensureDir(dir);
+            var dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+            ensureDirCEP(dirPath);
 
-            // Write file
-            nodeFS.writeFileSync(filePath, downloaded[fileName], 'utf8');
-            log('Wrote: ' + filePath);
+            var result = cepFS.writeFile(filePath, downloaded[fileName]);
+            if (result.err !== 0) {
+                writeErrors.push(fileName + ': error code ' + result.err);
+                log('Write failed: ' + fileName + ' — error ' + result.err);
+            } else {
+                log('Wrote: ' + filePath);
+            }
         } catch (e) {
             writeErrors.push(fileName + ': ' + e.message);
             log('Write failed: ' + fileName + ' — ' + e.message);
@@ -243,8 +241,9 @@ function writeUpdateFiles(downloaded, extPath, btn) {
     if (writeErrors.length > 0) {
         btn.textContent = 'Install Failed';
         setStatus('Write errors: ' + writeErrors.join(', '), 'error');
+        setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 3000);
     } else {
-        btn.textContent = '✓ Done';
+        btn.textContent = '✓ Updated!';
         setStatus('Update installed! Reloading...', 'success');
         log('Update complete — reloading in 1.5s');
 
@@ -254,14 +253,16 @@ function writeUpdateFiles(downloaded, extPath, btn) {
     }
 }
 
-// ── Ensure directory exists ──
-function ensureDir(dirPath) {
-    if (!nodeFS.existsSync(dirPath)) {
-        var parent = nodePath.dirname(dirPath);
-        if (parent !== dirPath) {
-            ensureDir(parent);
+
+function ensureDirCEP(dirPath) {
+    var readResult = cepFS.readdir(dirPath);
+    if (readResult.err !== 0) {
+        // Directory doesn't exist — create parent first
+        var parentDir = dirPath.substring(0, dirPath.lastIndexOf('/'));
+        if (parentDir && parentDir !== dirPath) {
+            ensureDirCEP(parentDir);
         }
-        nodeFS.mkdirSync(dirPath);
+        cepFS.makedir(dirPath);
     }
 }
 
