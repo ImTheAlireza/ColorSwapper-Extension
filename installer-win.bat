@@ -37,7 +37,7 @@ call :download "client/CSInterface.js"   "%EXT_DIR%\client\CSInterface.js"
 call :download "host/hostScript.jsx"     "%EXT_DIR%\host\hostScript.jsx"
 call :download "CSXS/manifest.xml"       "%EXT_DIR%\CSXS\manifest.xml"
 call :download ".debug"                  "%EXT_DIR%\.debug"
-call :download "version.json"            "%EXT_DIR%\version.json"
+
 
 echo.
 
