@@ -61,7 +61,6 @@ download "client/CSInterface.js"   "$EXT_DIR/client/CSInterface.js"
 download "host/hostScript.jsx"     "$EXT_DIR/host/hostScript.jsx"
 download "CSXS/manifest.xml"       "$EXT_DIR/CSXS/manifest.xml"
 download ".debug"                  "$EXT_DIR/.debug"
-download "version.json"            "$EXT_DIR/version.json"
 
 echo ""
 
