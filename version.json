@@ -1,23 +1,11 @@
 {
     "version": "1.0.1",
-    "changelog": "Initial release",
+    "changelog": "Bug fixes and improvements",
     "files": [
-        {
-            "remote": "client/app.js",
-            "local": "app.js"
-        },
-        {
-            "remote": "client/style.css",
-            "local": "style.css"
-        },
-        {
-            "remote": "client/index.html",
-            "local": "index.html"
-        },
-        {
-            "remote": "host/hostScript.jsx",
-            "local": "host/hostScript.jsx"
-        }
+        "client/app.js",
+        "client/style.css",
+        "client/index.html",
+        "host/hostScript.jsx"
     ],
     "baseUrl": "https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/"
 }
