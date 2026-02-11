@@ -5,6 +5,317 @@ var undoHistory = [];
 var MAX_UNDO_HISTORY = 10;
 var isAutoRescan = false;
 
+// ══════════════════════════════════════
+// VERSION & AUTO-UPDATE
+// ══════════════════════════════════════
+
+var CURRENT_VERSION = '1.0.0';
+var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/version.json';
+
+document.getElementById('authorLink').addEventListener('click', function (e) {
+    e.preventDefault();
+    var url = this.getAttribute('href');
+    if (url) {
+        if (typeof cep !== 'undefined' && cep.util) {
+            cep.util.openURLInDefaultBrowser(url);
+        } else {
+            window.open(url, '_blank');
+        }
+    }
+});
+
+
+// Node.js modules (available in CEP)
+var nodeFS = (typeof require !== 'undefined') ? require('fs') : null;
+var nodePath = (typeof require !== 'undefined') ? require('path') : null;
+
+// ── Get clean extension path ──
+function getCleanExtPath() {
+    var raw = cs.getSystemPath(SystemPath.EXTENSION);
+    var clean = decodeURIComponent(raw);
+    clean = clean.replace(/^file:\/{2,3}/, '');
+    // Windows: /C:/Users/... → C:/Users/...
+    if (/^\/[A-Za-z]:\//.test(clean)) {
+        clean = clean.substring(1);
+    }
+    if (clean.charAt(clean.length - 1) === '/') {
+        clean = clean.substring(0, clean.length - 1);
+    }
+    return clean;
+}
+
+// ── Version comparison ──
+function isNewerVersion(remote, local) {
+    var r = remote.split('.');
+    var l = local.split('.');
+    for (var i = 0; i < Math.max(r.length, l.length); i++) {
+        var rv = parseInt(r[i]) || 0;
+        var lv = parseInt(l[i]) || 0;
+        if (rv > lv) return true;
+        if (rv < lv) return false;
+    }
+    return false;
+}
+
+// ── Fetch JSON from URL ──
+function fetchJSON(url, callback) {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url + '?t=' + Date.now(), true); // cache-bust
+        xhr.timeout = 8000;
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    try {
+                        callback(null, JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        callback(e);
+                    }
+                } else {
+                    callback(new Error('HTTP ' + xhr.status));
+                }
+            }
+        };
+        xhr.onerror = function () { callback(new Error('Network error')); };
+        xhr.ontimeout = function () { callback(new Error('Timeout')); };
+        xhr.send();
+    } catch (e) {
+        callback(e);
+    }
+}
+
+// ── Fetch text content from URL ──
+function fetchText(url, callback) {
+    try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url + '?t=' + Date.now(), true);
+        xhr.timeout = 15000;
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    callback(null, xhr.responseText);
+                } else {
+                    callback(new Error('HTTP ' + xhr.status));
+                }
+            }
+        };
+        xhr.onerror = function () { callback(new Error('Network error')); };
+        xhr.ontimeout = function () { callback(new Error('Timeout')); };
+        xhr.send();
+    } catch (e) {
+        callback(e);
+    }
+}
+
+// ── Check for updates (runs on load) ──
+function checkForUpdates() {
+    if (!VERSION_CHECK_URL || VERSION_CHECK_URL.indexOf('YOUR_USERNAME') !== -1) {
+        log('Update check skipped — URL not configured');
+        return;
+    }
+
+    log('Checking for updates...');
+
+    fetchJSON(VERSION_CHECK_URL, function (err, data) {
+        if (err) {
+            log('Update check failed: ' + err.message);
+            return;
+        }
+
+        if (!data || !data.version) {
+            log('Invalid version data');
+            return;
+        }
+
+        log('Remote version: ' + data.version + ' | Local: ' + CURRENT_VERSION);
+
+        if (isNewerVersion(data.version, CURRENT_VERSION)) {
+            showUpdateBanner(data);
+        } else {
+            log('Extension is up to date');
+        }
+    });
+}
+
+// ── Show update banner ──
+var pendingUpdateData = null;
+
+function showUpdateBanner(data) {
+    pendingUpdateData = data;
+
+    document.getElementById('updateVersion').textContent = data.version;
+    document.getElementById('updateChangelog').textContent = data.changelog || '';
+    document.getElementById('updateBanner').classList.remove('hidden');
+}
+
+// ── Perform update ──
+function performUpdate() {
+    if (!pendingUpdateData) return;
+    if (!nodeFS || !nodePath) {
+        showToast('Update not supported in this environment');
+        return;
+    }
+
+    var data = pendingUpdateData;
+    var files = data.files;
+    var baseUrl = data.baseUrl;
+
+    if (!files || files.length === 0 || !baseUrl) {
+        showToast('Invalid update data');
+        return;
+    }
+
+    var extPath = getCleanExtPath();
+    var btn = document.getElementById('updateBtn');
+    var banner = document.getElementById('updateBanner');
+
+    btn.disabled = true;
+    btn.textContent = 'Downloading...';
+
+    log('Updating from ' + baseUrl);
+    log('Extension path: ' + extPath);
+
+    var downloaded = {};
+    var completed = 0;
+    var total = files.length;
+    var errors = [];
+
+    // Phase 1: Download all files to memory
+    for (var i = 0; i < files.length; i++) {
+        (function (fileName) {
+            var url = baseUrl + fileName;
+            log('Downloading: ' + fileName);
+
+            fetchText(url, function (err, content) {
+                completed++;
+
+                if (err) {
+                    errors.push(fileName + ': ' + err.message);
+                    log('Download failed: ' + fileName + ' — ' + err.message);
+                } else {
+                    downloaded[fileName] = content;
+                    log('Downloaded: ' + fileName + ' (' + content.length + ' bytes)');
+                }
+
+                btn.textContent = 'Downloading ' + completed + '/' + total;
+
+                // All done?
+                if (completed === total) {
+                    if (errors.length > 0) {
+                        btn.textContent = 'Update Failed';
+                        btn.disabled = false;
+                        setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 2000);
+                        setStatus('Download failed: ' + errors.join(', '), 'error');
+                        log('Update aborted — download errors');
+                    } else {
+                        // Phase 2: Write all files
+                        writeUpdateFiles(downloaded, extPath, btn);
+                    }
+                }
+            });
+        })(files[i]);
+    }
+}
+
+// ── Write downloaded files to disk ──
+function writeUpdateFiles(downloaded, extPath, btn) {
+    btn.textContent = 'Installing...';
+
+    var writeErrors = [];
+
+    for (var fileName in downloaded) {
+        try {
+            var filePath = nodePath.join(extPath, fileName);
+            var dir = nodePath.dirname(filePath);
+
+            // Ensure directory exists
+            ensureDir(dir);
+
+            // Write file
+            nodeFS.writeFileSync(filePath, downloaded[fileName], 'utf8');
+            log('Wrote: ' + filePath);
+        } catch (e) {
+            writeErrors.push(fileName + ': ' + e.message);
+            log('Write failed: ' + fileName + ' — ' + e.message);
+        }
+    }
+
+    if (writeErrors.length > 0) {
+        btn.textContent = 'Install Failed';
+        setStatus('Write errors: ' + writeErrors.join(', '), 'error');
+    } else {
+        btn.textContent = '✓ Done';
+        setStatus('Update installed! Reloading...', 'success');
+        log('Update complete — reloading in 1.5s');
+
+        setTimeout(function () {
+            location.reload();
+        }, 1500);
+    }
+}
+
+// ── Ensure directory exists ──
+function ensureDir(dirPath) {
+    if (!nodeFS.existsSync(dirPath)) {
+        var parent = nodePath.dirname(dirPath);
+        if (parent !== dirPath) {
+            ensureDir(parent);
+        }
+        nodeFS.mkdirSync(dirPath);
+    }
+}
+
+// ── Update button click ──
+document.getElementById('updateBtn').addEventListener('click', function () {
+    performUpdate();
+});
+
+// ── Dismiss update banner ──
+document.getElementById('dismissUpdate').addEventListener('click', function () {
+    document.getElementById('updateBanner').classList.add('hidden');
+    pendingUpdateData = null;
+});
+
+// ── Reload button ──
+document.getElementById('reloadBtn').addEventListener('click', function () {
+    location.reload();
+});
+
+// ── About modal ──
+document.getElementById('aboutBtn').addEventListener('click', function () {
+    document.getElementById('currentVersionLabel').textContent = CURRENT_VERSION;
+    document.getElementById('aboutModal').classList.remove('hidden');
+});
+
+document.getElementById('closeAbout').addEventListener('click', function () {
+    document.getElementById('aboutModal').classList.add('hidden');
+});
+
+// Close modal on overlay click
+document.getElementById('aboutModal').addEventListener('click', function (e) {
+    if (e.target === this) {
+        this.classList.add('hidden');
+    }
+});
+
+// ── GitHub link in about ──
+document.getElementById('aboutGithubLink').addEventListener('click', function () {
+    var url = this.getAttribute('data-url');
+    if (url) {
+        // Open in default browser
+        if (typeof cep !== 'undefined' && cep.util) {
+            cep.util.openURLInDefaultBrowser(url);
+        } else {
+            window.open(url, '_blank');
+        }
+    }
+});
+
+// ── Run update check on load (with delay) ──
+setTimeout(function () {
+    checkForUpdates();
+}, 3000);
+
 function callJSX(funcName, argsObj, callback) {
     var jsonStr = JSON.stringify(argsObj);
     var escaped = jsonStr

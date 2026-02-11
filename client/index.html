@@ -9,10 +9,50 @@
 
     <div class="container">
 
-        <div class="header" id="header">
-            <h1>⬡ Color Swapper</h1>
-            <p class="subtitle">Scan • Pick • Swap</p>
-        </div>
+	<!-- ── Header ── -->
+	<div class="header" id="header">
+		<div class="header-actions">
+			<button id="reloadBtn" class="btn-header" title="Reload Panel">↻</button>
+			<button id="aboutBtn" class="btn-header" title="About">?</button>
+		</div>
+		<h1>⬡ Color Swapper</h1>
+		<p class="subtitle">Scan • Pick • Swap</p>
+	</div>
+
+	<!-- Update Banner -->
+	<div id="updateBanner" class="update-banner hidden">
+		<span class="update-text">🎉 v<span id="updateVersion"></span> available</span>
+		<span id="updateChangelog" class="update-changelog"></span>
+		<button id="updateBtn" class="btn-update">Update Now</button>
+		<button id="dismissUpdate" class="btn-dismiss-update">✕</button>
+	</div>
+
+	<!-- About Modal -->
+	<div id="aboutModal" class="modal-overlay hidden">
+		<div class="modal-box">
+			<div class="modal-header">
+				<h2>⬡ Color Swapper</h2>
+				<button id="closeAbout" class="btn-modal-close">✕</button>
+			</div>
+			<div class="modal-body">
+				<p class="modal-version">Version <span id="currentVersionLabel">1.0.0</span></p>
+				<p class="modal-desc">Scan, pick and swap colors across your After Effects compositions.</p>
+				<div class="modal-features">
+					<p>• Shape fills, strokes, text colors, solids & effects</p>
+					<p>• Keyframe color support</p>
+					<p>• Precomp deep scanning</p>
+					<p>• Similar color merging</p>
+					<p>• Palette save & load</p>
+					<p>• Expression detection</p>
+					<p>• Undo support</p>
+				</div>
+				<div class="modal-footer">
+					<p class="modal-author">Built by <strong><a href="https://Alirezashabanzadeh.ir" id="authorLink" class="modal-link-inline">Alireza Shabanzadeh</a></strong></p>
+					<p class="modal-link" id="aboutGithubLink" data-url="https://github.com/ImTheAlireza/ColorSwapper-Extension">GitHub ↗</p>
+				</div>
+			</div>
+		</div>
+	</div>
 
         <div class="options">
             <div class="options-grid">
