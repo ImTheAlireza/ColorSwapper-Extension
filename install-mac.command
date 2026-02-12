@@ -16,7 +16,7 @@ echo "   Color Swapper - Installer"
 echo "  ========================================"
 echo ""
 
-BASE_URL="https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main"
+BASE_URL="https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main"
 EXT_DIR="$HOME/Library/Application Support/Adobe/CEP/extensions/ColorSwapper"
 
 echo "  Install path:"
