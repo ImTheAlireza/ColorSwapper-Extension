@@ -10,7 +10,7 @@ echo  ========================================
 echo.
 
 
-set "BASE_URL=https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main"
+set "BASE_URL=https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main"
 
 
 set "EXT_DIR=%APPDATA%\Adobe\CEP\extensions\ColorSwapper"
