@@ -254,7 +254,7 @@ function writeUpdateFiles(downloaded, extPath, btn) {
         setStatus('Write errors: ' + writeErrors.join(', '), 'error');
         setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 3000);
     } else {
-        btn.textContent = '✓ Updated!';
+        btn.textContent = 'Updated!';
         setStatus('Update installed! Reloading...', 'success');
         log('Update complete — reloading in 1.5s');
 
@@ -504,7 +504,7 @@ document.getElementById('swapBtn').addEventListener('click', function () {
                 updateUndoButton();
             }
 
-            setStatus('✓ Swapped ' + res.count + ' instance' + (res.count !== 1 ? 's' : ''), 'success');
+            setStatus('Swapped ' + res.count + ' instance' + (res.count !== 1 ? 's' : ''), 'success');
 
             isAutoRescan = true;
             setTimeout(function () {
@@ -750,22 +750,8 @@ function bindHexCopyByID(cellId) {
         e.stopPropagation();
         var hexValue = this.getAttribute('data-hex');
         if (!hexValue) return;
-
-        var textarea = document.createElement('textarea');
-        textarea.value = hexValue;
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        document.body.appendChild(textarea);
-        textarea.select();
-
-        try {
-            document.execCommand('copy');
-            showToast('Copied ' + hexValue);
-        } catch (err) {
-            showToast('Copy failed');
-        }
-
-        document.body.removeChild(textarea);
+        var ok = copyToClipboard(hexValue);
+        showToast(ok ? 'Copied ' + hexValue : 'Copy failed');
     });
 }
 
@@ -886,31 +872,47 @@ function bindResetButton(index) {
     });
 }
 
+function copyToClipboard(text) {
+    // CEP panels block navigator.clipboard and execCommand — use cep.util if available
+    try {
+        if (typeof cep !== 'undefined' && cep.util && cep.util.setClipboardData) {
+            cep.util.setClipboardData('plain/text', text);
+            return true;
+        }
+    } catch (e) {}
+
+    // Fallback: create a hidden input, focus it, and execCommand
+    try {
+        var el = document.createElement('input');
+        el.setAttribute('type', 'text');
+        el.setAttribute('value', text);
+        el.style.position = 'fixed';
+        el.style.top = '0';
+        el.style.left = '0';
+        el.style.opacity = '0';
+        el.style.fontSize = '12pt'; // prevent iOS zoom
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        el.setSelectionRange(0, 99999);
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        return true;
+    } catch (e) {}
+
+    return false;
+}
+
 function bindHexCopy(index) {
     var hexEl = document.getElementById('hexDisplay_' + index);
     if (!hexEl) return;
 
     hexEl.addEventListener('click', function (e) {
         e.stopPropagation();
-
         var hexValue = this.getAttribute('data-hex');
         if (!hexValue) return;
-
-        var textarea = document.createElement('textarea');
-        textarea.value = hexValue;
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        document.body.appendChild(textarea);
-        textarea.select();
-
-        try {
-            document.execCommand('copy');
-            showToast('Copied ' + hexValue);
-        } catch (err) {
-            showToast('Copy failed');
-        }
-
-        document.body.removeChild(textarea);
+        var ok = copyToClipboard(hexValue);
+        showToast(ok ? 'Copied ' + hexValue : 'Copy failed');
     });
 }
 
@@ -1434,7 +1436,7 @@ document.getElementById('undoBtn').addEventListener('click', function () {
     var lastOperation = undoHistory[undoHistory.length - 1];
 
     callJSX('undoSwap', lastOperation, function (result) {
-        btn.innerHTML = '<span class="btn-icon">↶</span> Undo';
+        btn.innerHTML = '<span class="btn-icon"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2.5 6.5a5 5 0 1 1 1 3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="2.5,3.5 2.5,6.5 5.5,6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span> Undo';
 
         if (result === 'EvalScript_ErrMessage') {
             setStatus('Error during undo', 'error');
