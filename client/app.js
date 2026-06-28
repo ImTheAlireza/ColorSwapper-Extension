@@ -4,9 +4,43 @@ var colorSwaps = {};
 var undoHistory = [];
 var MAX_UNDO_HISTORY = 10;
 var isAutoRescan = false;
+var scanDebounce = null; // ← ADD THIS
 
-var CURRENT_VERSION = '1.0.0';
+
+var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
+
+var CURRENT_VERSION = '1.0.0'; // Fallback
 var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/version.json';
+
+// Load version from manifest.xml
+(function loadVersionFromManifest() {
+  try {
+    var extPath = cs.getSystemPath(SystemPath.EXTENSION);
+    var manifestPath = extPath + '/CSXS/manifest.xml';
+    manifestPath = manifestPath.replace(/\\/g, '/');
+    
+    if (manifestPath.indexOf('file:///') === 0) {
+      manifestPath = manifestPath.replace('file:///', '');
+    } else if (manifestPath.indexOf('file://') === 0) {
+      manifestPath = manifestPath.replace('file://', '');
+    }
+    
+    if (cepFS) {
+      var result = cepFS.readFile(manifestPath, cepFS.UTF8);
+      if (result.err === 0 && result.data) {
+        // Parse XML to extract version
+        var versionMatch = result.data.match(/ExtensionBundleVersion="([^"]+)"/);
+        if (versionMatch && versionMatch[1]) {
+          CURRENT_VERSION = versionMatch[1];
+          log('Version from manifest: ' + CURRENT_VERSION);
+        }
+      }
+    }
+  } catch (e) {
+    log('Could not read manifest version: ' + e.message);
+  }
+})();
+
 
 document.getElementById('authorLink').addEventListener('click', function (e) {
     e.preventDefault();
@@ -20,7 +54,6 @@ document.getElementById('authorLink').addEventListener('click', function (e) {
     }
 });
 
-var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
 
 function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
@@ -143,126 +176,255 @@ function showUpdateBanner(data) {
 }
 
 function performUpdate() {
-    if (!pendingUpdateData) return;
-    if (!cepFS) {
-        showToast('Filesystem not available');
-        return;
+  if (!pendingUpdateData) return;
+  if (!cepFS) {
+    showToast('Filesystem not available');
+    return;
+  }
+  
+  var data = pendingUpdateData;
+  var files = data.files;
+  var baseUrl = data.baseUrl;
+  
+  if (!files || files.length === 0 || !baseUrl) {
+    showToast('Invalid update data');
+    return;
+  }
+  
+  // SECURITY: Validate all files before downloading
+  var validFiles = [];
+  for (var i = 0; i < files.length; i++) {
+    if (validateUpdateFile(files[i])) {
+      validFiles.push(files[i]);
     }
-
-    var data = pendingUpdateData;
-    var files = data.files;
-    var baseUrl = data.baseUrl;
-
-    if (!files || files.length === 0 || !baseUrl) {
-        showToast('Invalid update data');
-        return;
-    }
-
-    var extPath = getCleanExtPath();
-    var btn = document.getElementById('updateBtn');
-
-    btn.disabled = true;
-    btn.textContent = 'Downloading...';
-
-    log('Updating from ' + baseUrl);
-    log('Extension path: ' + extPath);
-
-    var downloaded = [];
-    var completed = 0;
-    var total = files.length;
-    var errors = [];
-
-    for (var i = 0; i < files.length; i++) {
-        (function (fileEntry) {
-            // Support both string and object format
-            var remotePath, localPath;
-            if (typeof fileEntry === 'string') {
-                remotePath = fileEntry;
-                localPath = fileEntry;
-            } else {
-                remotePath = fileEntry.remote;
-                localPath = fileEntry.local;
-            }
-
-            var url = baseUrl + remotePath;
-            log('Downloading: ' + remotePath);
-
-            fetchText(url, function (err, content) {
-                completed++;
-
-                if (err) {
-                    errors.push(remotePath + ': ' + err.message);
-                    log('Download failed: ' + remotePath + ' — ' + err.message);
-                } else {
-                    downloaded.push({
-                        localPath: localPath,
-                        content: content
-                    });
-                    log('Downloaded: ' + remotePath + ' (' + content.length + ' bytes)');
-                }
-
-                btn.textContent = 'Downloading ' + completed + '/' + total;
-
-                if (completed === total) {
-                    if (errors.length > 0) {
-                        btn.textContent = 'Update Failed';
-                        setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 2000);
-                        setStatus('Download failed: ' + errors.join(', '), 'error');
-                        log('Update aborted — download errors');
-                    } else {
-                        writeUpdateFiles(downloaded, extPath, btn);
-                    }
-                }
-            });
-        })(files[i]);
-    }
+  }
+  
+  if (validFiles.length === 0) {
+    showToast('No valid files to update');
+    return;
+  }
+  
+  // Continue with validFiles instead of files
+  var extPath = getCleanExtPath();
+  var btn = document.getElementById('updateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Downloading...';
+  
+  log('Updating ' + validFiles.length + ' file(s) from ' + baseUrl);
+  log('Extension path: ' + extPath);
+  
+  var downloaded = [];
+  var completed = 0;
+  var total = validFiles.length;
+  var errors = [];
+  
+  for (var i = 0; i < validFiles.length; i++) {
+    (function (fileEntry) {
+      var remotePath, localPath;
+      if (typeof fileEntry === 'string') {
+        remotePath = fileEntry;
+        localPath = fileEntry;
+      } else {
+        remotePath = fileEntry.remote;
+        localPath = fileEntry.local;
+      }
+      
+      var url = baseUrl + remotePath;
+      log('Downloading: ' + remotePath);
+      
+      fetchText(url, function (err, content) {
+        completed++;
+        if (err) {
+          errors.push(remotePath + ': ' + err.message);
+          log('Download failed: ' + remotePath + ' — ' + err.message);
+        } else if (!content || content.length === 0) {
+          // SECURITY: Reject empty downloads
+          errors.push(remotePath + ': empty file');
+          log('Download rejected: ' + remotePath + ' (empty)');
+        } else {
+          downloaded.push({
+            localPath: localPath,
+            content: content
+          });
+          log('Downloaded: ' + remotePath + ' (' + content.length + ' bytes)');
+        }
+        
+        btn.textContent = 'Downloading ' + completed + '/' + total;
+        
+        if (completed === total) {
+          if (errors.length > 0) {
+            btn.textContent = 'Update Failed';
+            setTimeout(function () { 
+              btn.textContent = 'Retry'; 
+              btn.disabled = false; 
+            }, 2000);
+            setStatus('Download failed: ' + errors.join(', '), 'error');
+            log('Update aborted — download errors');
+          } else {
+            writeUpdateFiles(downloaded, extPath, btn);
+          }
+        }
+      });
+    })(validFiles[i]);
+  }
 }
 
 function writeUpdateFiles(downloaded, extPath, btn) {
-    btn.textContent = 'Installing...';
-
-    var writeErrors = [];
-
-    for (var i = 0; i < downloaded.length; i++) {
-        var entry = downloaded[i];
-        try {
-            var filePath = extPath + '/' + entry.localPath;
-            filePath = filePath.replace(/\\/g, '/');
-            // Remove any double slashes
-            filePath = filePath.replace(/\/\//g, '/');
-
-            var dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
-            ensureDirCEP(dirPath);
-
-            log('Writing to: ' + filePath);
-
-            var result = cepFS.writeFile(filePath, entry.content);
-            if (result.err !== 0) {
-                writeErrors.push(entry.localPath + ': error code ' + result.err);
-                log('Write failed: ' + entry.localPath + ' — error ' + result.err);
-            } else {
-                log('Wrote: ' + filePath);
-            }
-        } catch (e) {
-            writeErrors.push(entry.localPath + ': ' + e.message);
-            log('Write failed: ' + entry.localPath + ' — ' + e.message);
+  btn.textContent = 'Installing...';
+  
+  var writeErrors = [];
+  var tempFiles = [];
+  
+  // Phase 1: Write to temp files
+  for (var i = 0; i < downloaded.length; i++) {
+    var entry = downloaded[i];
+    try {
+      var filePath = extPath + '/' + entry.localPath;
+      filePath = filePath.replace(/\\/g, '/').replace(/\/\//g, '/');
+      
+      var dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      ensureDirCEP(dirPath);
+      
+      // Write to .tmp file first
+      var tempPath = filePath + '.tmp';
+      log('Writing temp: ' + tempPath);
+      
+      var result = cepFS.writeFile(tempPath, entry.content);
+      
+      if (result.err !== 0) {
+        writeErrors.push(entry.localPath + ': write error ' + result.err);
+        log('Temp write failed: ' + entry.localPath);
+      } else {
+        // Validate file was written
+        var readResult = cepFS.readFile(tempPath);
+        if (readResult.err !== 0 || readResult.data.length === 0) {
+          writeErrors.push(entry.localPath + ': validation failed');
+          log('Temp validation failed: ' + entry.localPath);
+        } else {
+          tempFiles.push({
+            temp: tempPath,
+            final: filePath,
+            localPath: entry.localPath
+          });
+          log('Temp validated: ' + tempPath + ' (' + readResult.data.length + ' bytes)');
         }
+      }
+    } catch (e) {
+      writeErrors.push(entry.localPath + ': ' + e.message);
+      log('Temp write exception: ' + e.message);
     }
-
-    if (writeErrors.length > 0) {
-        btn.textContent = 'Install Failed';
-        setStatus('Write errors: ' + writeErrors.join(', '), 'error');
-        setTimeout(function () { btn.textContent = 'Retry'; btn.disabled = false; }, 3000);
-    } else {
-        btn.textContent = 'Updated!';
-        setStatus('Update installed! Reloading...', 'success');
-        log('Update complete — reloading in 1.5s');
-
-        setTimeout(function () {
-            location.reload();
-        }, 1500);
+  }
+  
+  // If any temp writes failed, abort
+  if (writeErrors.length > 0) {
+    // Clean up temp files
+    for (var t = 0; t < tempFiles.length; t++) {
+      try {
+        cepFS.deleteFile(tempFiles[t].temp);
+      } catch (e) {}
     }
+    
+    btn.textContent = 'Install Failed';
+    setStatus('Write errors: ' + writeErrors.join(', '), 'error');
+    setTimeout(function () { 
+      btn.textContent = 'Retry'; 
+      btn.disabled = false; 
+    }, 3000);
+    return;
+  }
+  
+  // Phase 2: Replace original files
+  btn.textContent = 'Replacing files...';
+  var replaceErrors = [];
+  
+  for (var j = 0; j < tempFiles.length; j++) {
+    var tf = tempFiles[j];
+    try {
+      // Delete original if exists
+      var stat = cepFS.stat(tf.final);
+      if (stat.err === 0) {
+        var delResult = cepFS.deleteFile(tf.final);
+        if (delResult.err !== 0) {
+          replaceErrors.push(tf.localPath + ': cannot delete original');
+          continue;
+        }
+      }
+      
+      // Rename temp to final
+      // CEP doesn't have rename, so read+write+delete
+      var tempData = cepFS.readFile(tf.temp);
+      if (tempData.err === 0) {
+        var finalResult = cepFS.writeFile(tf.final, tempData.data);
+        if (finalResult.err === 0) {
+          cepFS.deleteFile(tf.temp);
+          log('Replaced: ' + tf.final);
+        } else {
+          replaceErrors.push(tf.localPath + ': final write failed');
+        }
+      }
+    } catch (e) {
+      replaceErrors.push(tf.localPath + ': ' + e.message);
+    }
+  }
+  
+  if (replaceErrors.length > 0) {
+    btn.textContent = 'Partial Update';
+    setStatus('Some files failed: ' + replaceErrors.join(', '), 'error');
+    setTimeout(function () { 
+      btn.textContent = 'Retry Failed'; 
+      btn.disabled = false; 
+    }, 3000);
+  } else {
+    btn.textContent = 'Updated!';
+    setStatus('Update installed! Reloading...', 'success');
+    log('Update complete — reloading in 1.5s');
+    setTimeout(function () {
+      location.reload();
+    }, 1500);
+  }
 }
+
+
+function validateUpdateFile(fileEntry) {
+  var remotePath, localPath;
+  
+  if (typeof fileEntry === 'string') {
+    remotePath = fileEntry;
+    localPath = fileEntry;
+  } else {
+    remotePath = fileEntry.remote;
+    localPath = fileEntry.local;
+  }
+  
+  // Whitelist of allowed files
+  var allowedFiles = [
+    'client/app.js',
+    'client/style.css',
+    'client/index.html',
+    'client/CSInterface.js',
+    'host/hostScript.jsx',
+    'CSXS/manifest.xml',
+    'version.json'
+  ];
+  
+  // Check if file is in whitelist
+  if (allowedFiles.indexOf(localPath) === -1) {
+    log('SECURITY: Blocked non-whitelisted file: ' + localPath);
+    return false;
+  }
+  
+  // Reject path traversal attempts
+  if (localPath.indexOf('..') !== -1 || 
+      localPath.indexOf('\\') !== -1 ||
+      localPath.charAt(0) === '/' ||
+      localPath.indexOf(':') !== -1) {
+    log('SECURITY: Blocked suspicious path: ' + localPath);
+    return false;
+  }
+  
+  return true;
+}
+
 
 function ensureDirCEP(dirPath) {
     var readResult = cepFS.readdir(dirPath);
@@ -367,22 +529,28 @@ document.getElementById('showLogs').addEventListener('change', function () {
     }
 })();
 
-document.getElementById('scanBtn').addEventListener('click', function () {
-    var btn = this;
+function debouncedScan() {
+    if (scanDebounce) {
+        log('Scan already in progress');
+        showToast('Scan in progress...');
+        return;
+    }
+    var btn = document.getElementById('scanBtn');
     btn.classList.add('scanning');
     btn.querySelector('.btn-text').textContent = 'Scanning...';
+    btn.disabled = true;
     setStatus('Scanning composition...', 'info');
-
+    scanDebounce = true;
     var includePrecomps = document.getElementById('includePrecomps').checked;
     var threshold = document.getElementById('matchSimilar').checked ? parseInt(document.getElementById('similarThreshold').value) || 10 : 0;
     var selectedOnly = document.getElementById('selectedOnly').checked;
-
     try {
         cs.evalScript('scanColors(' + includePrecomps + ',' + threshold + ',' + selectedOnly + ')', function (result) {
+            scanDebounce = null;
             btn.classList.remove('scanning');
             btn.querySelector('.btn-text').textContent = 'Scan Colors';
+            btn.disabled = false;
             log('Scan: found ' + (result ? result.length : 0) + ' chars');
-
             if (result === 'EvalScript_ErrMessage' || !result || result === 'undefined' || result === 'null') {
                 if (selectedOnly) {
                     setStatus('Select layers in timeline first', 'error');
@@ -391,10 +559,8 @@ document.getElementById('scanBtn').addEventListener('click', function () {
                 }
                 return;
             }
-
             try {
                 scannedColors = JSON.parse(result);
-
                 if (scannedColors.length === 0) {
                     if (selectedOnly) {
                         setStatus('No colors found in selected layers', 'error');
@@ -403,45 +569,32 @@ document.getElementById('scanBtn').addEventListener('click', function () {
                     }
                     return;
                 }
-
-                if (!isAutoRescan) {
-                    clearUndoHistory();
-                } else {
-                    isAutoRescan = false;
-                }
-
+                if (!isAutoRescan) clearUndoHistory(); else isAutoRescan = false;
                 document.getElementById('emptyState').classList.add('hidden');
                 renderColorList();
                 updateSummary();
                 document.getElementById('summary').classList.remove('hidden');
                 document.getElementById('paletteBar').classList.remove('hidden');
                 document.getElementById('swapWrap').classList.remove('hidden');
-
-                var staticCount = 0;
-                var kfCount = 0;
+                var staticCount = 0, kfCount = 0;
                 for (var i = 0; i < scannedColors.length; i++) {
-                    if (scannedColors[i].type === 'keyframeGroup') {
-                        kfCount++;
-                    } else {
-                        staticCount++;
-                    }
+                    if (scannedColors[i].type === 'keyframeGroup') kfCount++; else staticCount++;
                 }
                 var msg = 'Found ' + staticCount + ' color' + (staticCount !== 1 ? 's' : '');
-                if (kfCount > 0) {
-                    msg += ' + ' + kfCount + ' keyframed';
-                }
+                if (kfCount > 0) msg += ' + ' + kfCount + ' keyframed';
                 setStatus(msg, 'success');
-            } catch (e) {
-                setStatus('Error parsing results', 'error');
-                log('Parse error: ' + e.message);
-            }
+            } catch (e) { setStatus('Error parsing results', 'error'); log('Parse error: ' + e.message); }
         });
     } catch (e) {
+        scanDebounce = null;
         btn.classList.remove('scanning');
         btn.querySelector('.btn-text').textContent = 'Scan Colors';
+        btn.disabled = false;
         setStatus('Script error: ' + e.message, 'error');
     }
-});
+}
+
+document.getElementById('scanBtn').addEventListener('click', debouncedScan);
 
 document.getElementById('swapBtn').addEventListener('click', function () {
     var allSwaps = getChangedSwaps();
@@ -540,7 +693,6 @@ document.getElementById('resetAllBtn').addEventListener('click', function () {
 function resetSingleColor(index) {
     var item = scannedColors[index];
     if (!item || item.type === 'keyframeGroup') return;
-
     var hex = item.hex;
     colorSwaps[hex] = hex;
 
@@ -549,6 +701,10 @@ function resetSingleColor(index) {
 
     var input = document.getElementById('colorInput_' + index);
     if (input) input.value = hex;
+
+    // FIX: Also reset the text hex input field
+    var hexInput = document.getElementById('hexInput_' + index);
+    if (hexInput) hexInput.value = hex;
 
     var card = document.getElementById('colorCard_' + index);
     if (card) card.classList.remove('changed');
@@ -559,6 +715,8 @@ function resetSingleColor(index) {
         hexEl.textContent = hex;
         hexEl.setAttribute('data-hex', hex);
     }
+
+    updateSwapCount();
 }
 
 function resetKeyframeCard(index) {
@@ -740,6 +898,8 @@ function bindKeyframeInput(cardIndex, cellIndex, originalHex) {
 
         updateSwapCount();
     });
+	
+	
 }
 
 function bindHexCopyByID(cellId) {
@@ -802,23 +962,24 @@ function buildColorCard(index) {
         mergedHexHTML = '<div class="merged-label">' + hexParts.join(' + ') + '</div>';
     }
 
-    var card = document.createElement('div');
-    card.className = 'color-card' + (exprCount >= item.count ? ' expr-only' : '');
-    card.id = 'colorCard_' + index;
-    card.style.animationDelay = (index * 0.04) + 's';
+	var card = document.createElement('div');
+	card.className = 'color-card' + (exprCount >= item.count ? ' expr-only' : '');
+	card.id = 'colorCard_' + index;
+	card.style.animationDelay = (index * 0.04) + 's';
 
-    card.innerHTML =
-        '<div class="card-actions" id="cardActions_' + index + '">' +
-        '   <button class="btn-select" id="selectBtn_' + index + '" title="Select layers with this color">◎ Select</button>' +
-        '   <span class="action-divider"></span>' +
-        '   <button class="btn-reset" id="resetBtn_' + index + '" title="Reset this color">↺ Reset</button>' +
-        '</div>' +
-        '<div class="swatch-row">' + swatchRowHTML + '</div>' +
-        mergedHexHTML +
-        '<div class="color-info">' +
-        '   <div class="color-hex clickable-hex" id="hexDisplay_' + index + '" data-hex="' + hex + '" title="Click to copy">' + hex + '</div>' +
-        '   <div class="color-count">' + item.count + ' inst · <span class="color-type">' + typeStr + '</span> ' + badgeHTML + '</div>' +
-        '</div>';
+	card.innerHTML =
+	  '<div class="card-actions" id="cardActions_' + index + '">' +
+	  '  <button class="btn-select" id="selectBtn_' + index + '" title="Select layers">Select</button>' +
+	  '  <span class="action-divider"></span>' +
+	  '  <button class="btn-reset" id="resetBtn_' + index + '" title="Reset">Reset</button>' +
+	  '</div>' +
+	  '<div class="swatch-row">' + swatchRowHTML + '</div>' +
+	  mergedHexHTML +
+	  '<div class="color-info">' +
+	  '  <input type="text" class="hex-input" id="hexInput_' + index + '" value="' + hex + '" maxlength="7" placeholder="#000000">' +
+	  '  <div class="color-hex clickable-hex" id="hexDisplay_' + index + '" data-hex="' + hex + '" title="Click to copy">' + hex + '</div>' +
+	  '  <div class="color-count">' + item.count + ' inst · <span class="color-type">' + typeStr + '</span> ' + badgeHTML + '</div>' +
+	  '</div>';
 
     document.getElementById('colorList').appendChild(card);
 
@@ -832,12 +993,16 @@ function bindColorInput(index, originalHex) {
     var input = document.getElementById('colorInput_' + index);
     if (!input) return;
 
+    // When native color picker changes → update everything including text field
     input.addEventListener('input', function () {
         var newHex = this.value;
         colorSwaps[originalHex] = newHex;
-
         document.getElementById('newSwatch_' + index).style.backgroundColor = newHex;
-
+        
+        // FIX: Sync the hex text input to match picker
+        var hexText = document.getElementById('hexInput_' + index);
+        if (hexText) hexText.value = newHex;
+        
         var card = document.getElementById('colorCard_' + index);
         var hexEl = document.getElementById('hexDisplay_' + index);
 
@@ -854,6 +1019,25 @@ function bindColorInput(index, originalHex) {
 
         updateSwapCount();
     });
+
+    // When text input changes manually → validate then update picker
+    var hexInput = document.getElementById('hexInput_' + index);
+    if (hexInput) {
+        hexInput.addEventListener('change', function () {
+            var val = this.value.trim();
+            if (!/^#/.test(val)) val = '#' + val;
+            
+            if (/^#[0-9A-F]{6}$/i.test(val)) {
+                this.value = val; // normalize format
+                input.value = val; // sync picker
+                input.dispatchEvent(new Event('input')); // trigger above handler
+            } else {
+                showToast('Invalid hex format');
+                // Revert to current valid color (from swap object or original)
+                this.value = colorSwaps[originalHex] || originalHex;
+            }
+        });
+    }
 }
 
 function bindResetButton(index) {
@@ -1194,11 +1378,20 @@ function loadPalette(index) {
     if (index < 0 || index >= palettes.length) return;
 
     var palette = palettes[index];
-    var paletteColors = palette.colors;
+    var paletteColors = (palette && palette.colors) ? palette.colors : [];
 
     if (scannedColors.length === 0) {
         showToast('Scan colors first');
         return;
+    }
+
+    // Small helper (kept inside the function so you can copy-paste safely)
+    function normalizeHex(h) {
+        if (!h) return null;
+        h = ('' + h).trim();
+        if (h.charAt(0) !== '#') h = '#' + h;
+        if (!/^#[0-9A-Fa-f]{6}$/.test(h)) return null;
+        return h.toLowerCase();
     }
 
     var mapped = 0;
@@ -1207,16 +1400,22 @@ function loadPalette(index) {
     for (var i = 0; i < scannedColors.length; i++) {
         var item = scannedColors[i];
 
+        // ----------------------------
+        // Keyframed color groups
+        // ----------------------------
         if (item.type === 'keyframeGroup') {
-            // Map palette colors to each cell
             for (var c = 0; c < item.colors.length; c++) {
                 if (paletteIdx >= paletteColors.length) break;
 
                 var cellId = i + '_' + c;
                 var swapKey = 'kf:' + i + ':' + c;
+
                 var origHex = item.colors[c].hex;
-                var newHex = paletteColors[paletteIdx];
+                var newHexRaw = paletteColors[paletteIdx];
                 paletteIdx++;
+
+                var newHex = normalizeHex(newHexRaw);
+                if (!newHex) continue; // skip invalid palette entry
 
                 colorSwaps[swapKey] = newHex;
 
@@ -1229,10 +1428,11 @@ function loadPalette(index) {
                 var cell = document.getElementById('chainCell_' + cellId);
                 var hexEl = document.getElementById('hexDisplay_' + cellId);
 
-                if (newHex.toLowerCase() !== origHex.toLowerCase()) {
+                if (newHex.toLowerCase() !== (origHex || '').toLowerCase()) {
                     if (cell) cell.classList.add('changed');
                     if (hexEl) {
-                        hexEl.innerHTML = '<span class="old-hex">' + origHex + '</span> <span class="new-hex">' + newHex + '</span>';
+                        hexEl.innerHTML =
+                            '<span class="old-hex">' + origHex + '</span> <span class="new-hex">' + newHex + '</span>';
                         hexEl.setAttribute('data-hex', newHex);
                     }
                     mapped++;
@@ -1246,48 +1446,58 @@ function loadPalette(index) {
                 }
             }
 
-            // Update parent card
+            // Update parent card changed state
             var card = document.getElementById('colorCard_' + i);
             if (card) {
                 var anyCellChanged = card.querySelector('.chain-cell.changed');
-                if (anyCellChanged) {
-                    card.classList.add('changed');
-                } else {
-                    card.classList.remove('changed');
-                }
+                if (anyCellChanged) card.classList.add('changed');
+                else card.classList.remove('changed');
             }
+
+            continue;
+        }
+
+        // ----------------------------
+        // Static colors
+        // ----------------------------
+        if (paletteIdx >= paletteColors.length) break;
+
+        var originalHex = item.hex;
+        var newHex2Raw = paletteColors[paletteIdx];
+        paletteIdx++;
+
+        var newHex2 = normalizeHex(newHex2Raw);
+        if (!newHex2) continue; // skip invalid palette entry
+
+        colorSwaps[originalHex] = newHex2;
+
+        var swatch2 = document.getElementById('newSwatch_' + i);
+        if (swatch2) swatch2.style.backgroundColor = newHex2;
+
+        var input2 = document.getElementById('colorInput_' + i);
+        if (input2) input2.value = newHex2;
+
+        // ✅ FIX 3: Sync the hex text field (your new <input type="text" class="hex-input">)
+        var hexInput2 = document.getElementById('hexInput_' + i);
+        if (hexInput2) hexInput2.value = newHex2;
+
+        var card2 = document.getElementById('colorCard_' + i);
+        var hexEl2 = document.getElementById('hexDisplay_' + i);
+
+        if (newHex2.toLowerCase() !== (originalHex || '').toLowerCase()) {
+            if (card2) card2.classList.add('changed');
+            if (hexEl2) {
+                hexEl2.innerHTML =
+                    '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex2 + '</span>';
+                hexEl2.setAttribute('data-hex', newHex2);
+            }
+            mapped++;
         } else {
-            if (paletteIdx >= paletteColors.length) break;
-
-            var originalHex = item.hex;
-            var newHex2 = paletteColors[paletteIdx];
-            paletteIdx++;
-
-            colorSwaps[originalHex] = newHex2;
-
-            var swatch2 = document.getElementById('newSwatch_' + i);
-            if (swatch2) swatch2.style.backgroundColor = newHex2;
-
-            var input2 = document.getElementById('colorInput_' + i);
-            if (input2) input2.value = newHex2;
-
-            var card2 = document.getElementById('colorCard_' + i);
-            var hexEl2 = document.getElementById('hexDisplay_' + i);
-
-            if (newHex2.toLowerCase() !== originalHex.toLowerCase()) {
-                if (card2) card2.classList.add('changed');
-                if (hexEl2) {
-                    hexEl2.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex2 + '</span>';
-                    hexEl2.setAttribute('data-hex', newHex2);
-                }
-                mapped++;
-            } else {
-                if (card2) card2.classList.remove('changed');
-                if (hexEl2) {
-                    hexEl2.innerHTML = '';
-                    hexEl2.textContent = originalHex;
-                    hexEl2.setAttribute('data-hex', originalHex);
-                }
+            if (card2) card2.classList.remove('changed');
+            if (hexEl2) {
+                hexEl2.innerHTML = '';
+                hexEl2.textContent = originalHex;
+                hexEl2.setAttribute('data-hex', originalHex);
             }
         }
     }

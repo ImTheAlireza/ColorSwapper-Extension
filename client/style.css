@@ -1479,3 +1479,23 @@ body::-webkit-scrollbar-thumb:hover {
     color: #B7C6F3;
     text-decoration: underline;
 }
+
+
+.hex-input {
+  width: 80px;
+  padding: 3px 6px;
+  background: rgba(47, 62, 99, 0.5);
+  border: 1px solid rgba(75, 96, 145, 0.5);
+  border-radius: 4px;
+  color: #B7C6F3;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 4px;
+}
+
+.hex-input:focus {
+  border-color: #9AAEDE;
+}

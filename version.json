@@ -1,6 +1,6 @@
 {
-    "version": "1.0.0",
-    "changelog": "Initial Release",
+    "version": "1.0.1",
+    "changelog": "Performance improvements and bug fixes.",
     "files": [
         "client/app.js",
         "client/style.css",
