@@ -913,13 +913,28 @@ function bindKeyframeInput(cardIndex, cellIndex, originalHex) {
 function bindHexCopyByID(cellId) {
     var hexEl = document.getElementById('hexDisplay_' + cellId);
     if (!hexEl) return;
-
     hexEl.addEventListener('click', function (e) {
         e.stopPropagation();
         var hexValue = this.getAttribute('data-hex');
         if (!hexValue) return;
-        var ok = copyToClipboard(hexValue);
-        showToast(ok ? 'Copied ' + hexValue : 'Copy failed');
+        // ✅ Remove # before copying
+        var copyValue = hexValue.replace('#', '');
+        var ok = copyToClipboard(copyValue);
+        showToast(ok ? 'Copied ' + copyValue : 'Copy failed');
+    });
+}
+
+function bindHexCopy(index) {
+    var hexEl = document.getElementById('hexDisplay_' + index);
+    if (!hexEl) return;
+    hexEl.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var hexValue = this.getAttribute('data-hex');
+        if (!hexValue) return;
+        // ✅ Remove # before copying
+        var copyValue = hexValue.replace('#', '');
+        var ok = copyToClipboard(copyValue);
+        showToast(ok ? 'Copied ' + copyValue : 'Copy failed');
     });
 }
 
@@ -993,6 +1008,71 @@ function buildColorCard(index) {
     bindResetButton(index);
     bindHexCopy(index);
     bindSelectButton(index);
+	
+	var hexInput = document.getElementById('hexInput_' + index);
+	if (hexInput) {
+		// Select all on focus
+		hexInput.addEventListener('focus', function() {
+			this.select();
+		});
+		
+		// Apply on blur (click out)
+		hexInput.addEventListener('blur', function() {
+			var newHex = normalizeHexInput(this.value);
+			if (!newHex) {
+				// Invalid — revert to current
+				this.value = colorSwaps[hex] || hex;
+				return;
+			}
+			
+			// Update color
+			colorSwaps[hex] = newHex;
+			var swatch = document.getElementById('newSwatch_' + index);
+			if (swatch) swatch.style.backgroundColor = newHex;
+			
+			var card = document.getElementById('colorCard_' + index);
+			var hexEl = document.getElementById('hexDisplay_' + index);
+			
+			if (newHex.toLowerCase() !== hex.toLowerCase()) {
+				if (card) card.classList.add('changed');
+				if (hexEl) {
+					hexEl.innerHTML =
+						'<span class="old-hex">' + hex + '</span> ' +
+						'<span class="new-hex">' + newHex + '</span>';
+					hexEl.setAttribute('data-hex', newHex);
+				}
+			} else {
+				if (card) card.classList.remove('changed');
+				if (hexEl) {
+					hexEl.innerHTML = '';
+					hexEl.textContent = hex;
+					hexEl.setAttribute('data-hex', hex);
+				}
+			}
+			
+			this.value = newHex;
+			updateSwapCount();
+		});
+		
+		// Apply on Enter key
+		hexInput.addEventListener('keydown', function(e) {
+			if (e.key === 'Enter' || e.keyCode === 13) {
+				this.blur();
+			}
+		});
+	}
+}
+
+function normalizeHexInput(value) {
+    // Remove # if present
+    value = value.replace('#', '').trim().toUpperCase();
+    
+    // Validate hex
+    if (/^[0-9A-F]{6}$/.test(value)) {
+        return '#' + value;
+    }
+    
+    return null;
 }
 
 function bindColorInput(index, originalHex) {
@@ -1086,19 +1166,6 @@ function copyToClipboard(text) {
     } catch (e) {}
 
     return false;
-}
-
-function bindHexCopy(index) {
-    var hexEl = document.getElementById('hexDisplay_' + index);
-    if (!hexEl) return;
-
-    hexEl.addEventListener('click', function (e) {
-        e.stopPropagation();
-        var hexValue = this.getAttribute('data-hex');
-        if (!hexValue) return;
-        var ok = copyToClipboard(hexValue);
-        showToast(ok ? 'Copied ' + hexValue : 'Copy failed');
-    });
 }
 
 function bindSelectButton(index) {
@@ -1739,27 +1806,33 @@ function openCustomColorPicker(initialHex, callback) {
     }
     
     // Convert HSV to hex
-    function hsvToHex(h, s, v) {
-        var c = v * s;
-        var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-        var m = v - c;
-        var r = 0, g = 0, b = 0;
-        
-        if (h < 60) { r = c; g = x; b = 0; }
-        else if (h < 120) { r = x; g = c; b = 0; }
-        else if (h < 180) { r = 0; g = c; b = x; }
-        else if (h < 240) { r = 0; g = x; b = c; }
-        else if (h < 300) { r = x; g = 0; b = c; }
-        else { r = c; g = 0; b = x; }
-        
-        r = Math.round((r + m) * 255);
-        g = Math.round((g + m) * 255);
-        b = Math.round((b + m) * 255);
-        
-        return '#' + 
-            ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
-    }
-    
+// Convert HSV to hex
+	function hsvToHex(h, s, v) {
+		var c = v * s;
+		var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+		var m = v - c;
+		var r = 0, g = 0, b = 0;
+		
+		if (h < 60) { r = c; g = x; b = 0; }
+		else if (h < 120) { r = x; g = c; b = 0; }
+		else if (h < 180) { r = 0; g = c; b = x; }
+		else if (h < 240) { r = 0; g = x; b = c; }
+		else if (h < 300) { r = x; g = 0; b = c; }
+		else { r = c; g = 0; b = x; }
+		
+		r = Math.round((r + m) * 255);
+		g = Math.round((g + m) * 255);
+		b = Math.round((b + m) * 255);
+		
+		// ✅ FIX: Ensure only 6 hex digits
+		var toHex = function(n) {
+			var hex = n.toString(16);
+			return hex.length === 1 ? '0' + hex : hex;
+		};
+		
+		return '#' + toHex(r) + toHex(g) + toHex(b);
+	}
+		
     // Update UI
     function updateUI() {
         var hex = hsvToHex(hue, sat, bri);
