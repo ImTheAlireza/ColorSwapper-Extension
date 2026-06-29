@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "changelog": "Bug fixes and improvements",
   "files": [
     "client/app.js",
