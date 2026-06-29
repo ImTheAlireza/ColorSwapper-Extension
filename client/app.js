@@ -1687,68 +1687,159 @@ document.getElementById('undoBtn').addEventListener('click', function () {
 
 
 function openCustomColorPicker(initialHex, callback) {
-
     var overlay = document.getElementById('colorPickerOverlay');
     overlay.classList.remove('hidden');
-
-    overlay.innerHTML = `
-        <div class="picker">
-            ${document.querySelector('.picker')?.innerHTML || ''}
-        </div>
-    `;
-
+    
     var picker = overlay.querySelector('.picker');
     var closeBtn = picker.querySelector('.picker-title span');
     var okBtn = picker.querySelector('.btn-ok');
     var cancelBtn = picker.querySelector('.btn-cancel');
-
+    var hexInput = picker.querySelector('#fHex');
+    var gradient = picker.querySelector('#pickerGradient');
+    var gradientCursor = picker.querySelector('#pickerCursor');
+    var hueBar = picker.querySelector('#pickerHueBar');
+    var hueCursor = picker.querySelector('#pickerHueCursor');
+    
+    // Close handlers
     function close() {
         overlay.classList.add('hidden');
-        overlay.innerHTML = '';
     }
-
+    
     closeBtn.onclick = close;
     cancelBtn.onclick = close;
-
-    // Initialize picker state
+    overlay.onclick = function(e) {
+        if (e.target === overlay) close();
+    };
+    
+    // Color state
     var hue = 0, sat = 1, bri = 1;
-
+    
+    // Convert hex to HSV
     function hexToHsv(hex) {
-        hex = hex.replace('#','');
-        var r = parseInt(hex.substring(0,2),16);
-        var g = parseInt(hex.substring(2,4),16);
-        var b = parseInt(hex.substring(4,6),16);
-        return rgb2hsv(r,g,b);
+        hex = hex.replace('#', '');
+        var r = parseInt(hex.substring(0, 2), 16) / 255;
+        var g = parseInt(hex.substring(2, 4), 16) / 255;
+        var b = parseInt(hex.substring(4, 6), 16) / 255;
+        
+        var max = Math.max(r, g, b);
+        var min = Math.min(r, g, b);
+        var d = max - min;
+        var h = 0;
+        var s = max === 0 ? 0 : d / max;
+        var v = max;
+        
+        if (d !== 0) {
+            if (max === r) h = 60 * (((g - b) / d) % 6);
+            else if (max === g) h = 60 * ((b - r) / d + 2);
+            else h = 60 * ((r - g) / d + 4);
+        }
+        if (h < 0) h += 360;
+        
+        return { h: h, s: s, v: v };
     }
-
-    function rgb2hsv(r,g,b){
-        r/=255;g/=255;b/=255;
-        var max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,h,s=max===0?0:d/max,v=max;
-        if(d===0)h=0;
-        else if(max===r)h=60*((g-b)/d%6);
-        else if(max===g)h=60*((b-r)/d+2);
-        else h=60*((r-g)/d+4);
-        if(h<0)h+=360;
-        return {h:h,s:s,v:v};
+    
+    // Convert HSV to hex
+    function hsvToHex(h, s, v) {
+        var c = v * s;
+        var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+        var m = v - c;
+        var r = 0, g = 0, b = 0;
+        
+        if (h < 60) { r = c; g = x; b = 0; }
+        else if (h < 120) { r = x; g = c; b = 0; }
+        else if (h < 180) { r = 0; g = c; b = x; }
+        else if (h < 240) { r = 0; g = x; b = c; }
+        else if (h < 300) { r = x; g = 0; b = c; }
+        else { r = c; g = 0; b = x; }
+        
+        r = Math.round((r + m) * 255);
+        g = Math.round((g + m) * 255);
+        b = Math.round((b + m) * 255);
+        
+        return '#' + 
+            ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
     }
-
-    var hsv = hexToHsv(initialHex || "#ffffff");
+    
+    // Update UI
+    function updateUI() {
+        var hex = hsvToHex(hue, sat, bri);
+        hexInput.value = hex.replace('#', '');
+        
+        // Update gradient background
+        var baseColor = hsvToHex(hue, 1, 1);
+        gradient.style.background = 
+            'linear-gradient(to bottom, transparent, #000), ' +
+            'linear-gradient(to right, #fff, ' + baseColor + ')';
+        
+        // Position cursors
+        var x = sat * gradient.offsetWidth;
+        var y = (1 - bri) * gradient.offsetHeight;
+        gradientCursor.style.left = x + 'px';
+        gradientCursor.style.top = y + 'px';
+        
+        var hueX = (hue / 360) * hueBar.offsetWidth;
+        hueCursor.style.left = hueX + 'px';
+    }
+    
+    // Initialize from hex
+    var hsv = hexToHsv(initialHex || '#FFFFFF');
     hue = hsv.h;
     sat = hsv.s;
     bri = hsv.v;
-
-    // You can re-use your existing picker script logic here
-    // For now we just set hex field
-    var hexInput = picker.querySelector('#fHex');
-    hexInput.value = initialHex.replace('#','');
-
-    okBtn.onclick = function(){
+    updateUI();
+    
+    // Gradient drag
+    gradient.addEventListener('mousedown', function(e) {
+        function move(e) {
+            var rect = gradient.getBoundingClientRect();
+            var x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+            var y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+            sat = x / rect.width;
+            bri = 1 - (y / rect.height);
+            updateUI();
+        }
+        move(e);
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', function() {
+            document.removeEventListener('mousemove', move);
+        }, { once: true });
+    });
+    
+    // Hue bar drag
+    hueBar.addEventListener('mousedown', function(e) {
+        function move(e) {
+            var rect = hueBar.getBoundingClientRect();
+            var x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+            hue = (x / rect.width) * 360;
+            updateUI();
+        }
+        move(e);
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', function() {
+            document.removeEventListener('mousemove', move);
+        }, { once: true });
+    });
+    
+    // Hex input
+    hexInput.addEventListener('input', function() {
+        var val = this.value.trim();
+        if (/^[0-9A-Fa-f]{6}$/.test(val)) {
+            var hsv = hexToHsv('#' + val);
+            hue = hsv.h;
+            sat = hsv.s;
+            bri = hsv.v;
+            updateUI();
+        }
+    });
+    
+    // OK button
+    okBtn.onclick = function() {
         var val = hexInput.value.trim();
-        if (!/^([0-9A-Fa-f]{6})$/.test(val)) {
-            showToast("Invalid hex");
+        if (!/^[0-9A-Fa-f]{6}$/.test(val)) {
+            showToast('Invalid hex color');
             return;
         }
         close();
-        callback("#" + val.toUpperCase());
+        callback('#' + val.toUpperCase());
     };
 }

@@ -198,10 +198,30 @@
     </div>
 
 
-	<div id="colorPickerOverlay" class="picker-overlay hidden"></div>
+	<div id="colorPickerOverlay" class="picker-overlay hidden">
+		<div class="picker">
+			<div class="picker-header">
+				<span class="picker-title">Pick Color <span style="cursor:pointer;float:right;">✕</span></span>
+			</div>
+			<div class="picker-body">
+				<div class="picker-gradient" id="pickerGradient">
+					<div class="picker-cursor" id="pickerCursor"></div>
+				</div>
+				<div class="picker-hue-bar" id="pickerHueBar">
+					<div class="picker-hue-cursor" id="pickerHueCursor"></div>
+				</div>
+				<div class="picker-controls">
+					<input type="text" id="fHex" class="picker-hex-input" maxlength="6" placeholder="FFFFFF">
+				</div>
+			</div>
+			<div class="picker-footer">
+				<button class="btn-cancel">Cancel</button>
+				<button class="btn-ok">OK</button>
+			</div>
+		</div>
+	</div>
 
-    <script src="CSInterface.js"></script>
-    <script src="app.js"></script>
-
+<script src="CSInterface.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
