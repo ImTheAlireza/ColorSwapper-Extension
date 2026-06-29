@@ -1,11 +1,13 @@
 {
-    "version": "1.0.1",
-    "changelog": "Performance improvements and bug fixes.",
-    "files": [
-        "client/app.js",
-        "client/style.css",
-        "client/index.html",
-        "host/hostScript.jsx"
-    ],
-    "baseUrl": "https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/"
+  "version": "1.0.1",
+  "changelog": "Bug fixes and improvements",
+  "files": [
+    "client/app.js",
+    "client/style.css",
+    "client/index.html",
+    "client/CSInterface.js",
+    "host/hostScript.jsx",
+    "CSXS/manifest.xml"
+  ],
+  "baseUrl": "https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/"
 }
