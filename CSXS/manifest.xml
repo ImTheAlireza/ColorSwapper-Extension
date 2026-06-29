@@ -2,12 +2,12 @@
 <ExtensionManifest 
     Version="6.0"
     ExtensionBundleId="com.colorswapper.bundle"
-    ExtensionBundleVersion="1.0.2"
+    ExtensionBundleVersion="1.0.3"
     ExtensionBundleName="ColorSwapper"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
     <ExtensionList>
-        <Extension Id="com.colorswapper.panel" Version="1.0.2"/>
+        <Extension Id="com.colorswapper.panel" Version="1.0.3"/>
     </ExtensionList>
 
     <ExecutionEnvironment>
