@@ -1145,6 +1145,30 @@ function colorListContains(list, hex) {
     return false;
 }
 
+
+function pickColor(currentHex) {
+    try {
+        // Convert hex to AE color array [r,g,b] 0-1
+        var r = parseInt(currentHex.slice(1,3),16)/255;
+        var g = parseInt(currentHex.slice(3,5),16)/255;
+        var b = parseInt(currentHex.slice(5,7),16)/255;
+        
+        var picked = app.showColorPicker([r,g,b]);
+        if (!picked) return 'null';
+        
+        // Convert back to hex
+        function toHex(v) {
+            var h = Math.round(v*255).toString(16);
+            return h.length===1 ? '0'+h : h;
+        }
+        return '#' + toHex(picked[0]) + toHex(picked[1]) + toHex(picked[2]);
+    } catch(e) {
+        return 'error:' + e.message;
+    }
+}
+
+
+
 $.global.scanColors = scanColors;
 $.global.swapColors = swapColors;
 $.global.undoSwap = undoSwap;

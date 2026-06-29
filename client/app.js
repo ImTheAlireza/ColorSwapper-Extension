@@ -699,8 +699,6 @@ function resetSingleColor(index) {
     var swatch = document.getElementById('newSwatch_' + index);
     if (swatch) swatch.style.backgroundColor = hex;
 
-    var input = document.getElementById('colorInput_' + index);
-    if (input) input.value = hex;
 
     // FIX: Also reset the text hex input field
     var hexInput = document.getElementById('hexInput_' + index);
@@ -733,8 +731,6 @@ function resetKeyframeCard(index) {
         var swatch = document.getElementById('newSwatch_' + cellId);
         if (swatch) swatch.style.backgroundColor = origHex;
 
-        var input = document.getElementById('colorInput_' + cellId);
-        if (input) input.value = origHex;
 
         var cell = document.getElementById('chainCell_' + cellId);
         if (cell) cell.classList.remove('changed');
@@ -812,9 +808,7 @@ function buildKeyframeCard(index) {
             '   <div class="cell-swatches">' +
             '       <div class="color-swatch" style="background-color:' + kColor.hex + '"></div>' +
             '       <span class="color-arrow">→</span>' +
-            '       <div class="new-color-swatch" id="newSwatch_' + cellId + '" style="background-color:' + kColor.hex + '">' +
-            '           <input type="color" value="' + kColor.hex + '" id="colorInput_' + cellId + '">' +
-            '       </div>' +
+			'       <div class="new-color-swatch" id="newSwatch_' + cellId + '" style="background-color:' + kColor.hex + '"></div>' +
             '   </div>' +
             '   <div class="cell-info">' +
             '       <div class="color-hex clickable-hex" id="hexDisplay_' + cellId + '" data-hex="' + kColor.hex + '">' + kColor.hex + '</div>' +
@@ -862,45 +856,52 @@ function escapeHTML(str) {
         .replace(/"/g, '&quot;');
 }
 
+
 function bindKeyframeInput(cardIndex, cellIndex, originalHex) {
     var cellId = cardIndex + '_' + cellIndex;
     var swapKey = 'kf:' + cardIndex + ':' + cellIndex;
-    var input = document.getElementById('colorInput_' + cellId);
-    if (!input) return;
+    var swatch = document.getElementById('newSwatch_' + cellId);
+    if (!swatch) return;
 
-    input.addEventListener('input', function () {
-        var newHex = this.value;
-        colorSwaps[swapKey] = newHex;
+    swatch.style.cursor = 'pointer';
 
-        document.getElementById('newSwatch_' + cellId).style.backgroundColor = newHex;
+    swatch.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var currentHex = colorSwaps[swapKey] || originalHex;
+        cs.evalScript('pickColor("' + currentHex + '")', function(result) {
+            if (!result || result === 'null' || result.indexOf('error:') === 0) return;
+            var newHex = result.trim();
+            if (!/^#[0-9A-Fa-f]{6}$/.test(newHex)) return;
 
-        var cell = document.getElementById('chainCell_' + cellId);
-        var hexEl = document.getElementById('hexDisplay_' + cellId);
+            colorSwaps[swapKey] = newHex;
+            swatch.style.backgroundColor = newHex;
 
-        if (newHex.toLowerCase() !== originalHex.toLowerCase()) {
-            cell.classList.add('changed');
-            hexEl.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex + '</span>';
-            hexEl.setAttribute('data-hex', newHex);
-        } else {
-            cell.classList.remove('changed');
-            hexEl.innerHTML = '';
-            hexEl.textContent = originalHex;
-            hexEl.setAttribute('data-hex', originalHex);
-        }
+            var cell = document.getElementById('chainCell_' + cellId);
+            var hexEl = document.getElementById('hexDisplay_' + cellId);
 
-        var card = document.getElementById('colorCard_' + cardIndex);
-        var anyCellChanged = card.querySelector('.chain-cell.changed');
-        if (anyCellChanged) {
-            card.classList.add('changed');
-        } else {
-            card.classList.remove('changed');
-        }
+            if (newHex.toLowerCase() !== originalHex.toLowerCase()) {
+                cell.classList.add('changed');
+                hexEl.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex + '</span>';
+                hexEl.setAttribute('data-hex', newHex);
+            } else {
+                cell.classList.remove('changed');
+                hexEl.innerHTML = '';
+                hexEl.textContent = originalHex;
+                hexEl.setAttribute('data-hex', originalHex);
+            }
 
-        updateSwapCount();
+            var card = document.getElementById('colorCard_' + cardIndex);
+            if (card) {
+                var anyCellChanged = card.querySelector('.chain-cell.changed');
+                if (anyCellChanged) card.classList.add('changed');
+                else card.classList.remove('changed');
+            }
+
+            updateSwapCount();
+        });
     });
-	
-	
 }
+
 
 function bindHexCopyByID(cellId) {
     var hexEl = document.getElementById('hexDisplay_' + cellId);
@@ -949,10 +950,8 @@ function buildColorCard(index) {
     }
 
     swatchRowHTML += '<span class="color-arrow">→</span>';
-    swatchRowHTML += '<div class="new-color-swatch" id="newSwatch_' + index + '" style="background-color:' + hex + '" title="Click to pick new color">';
-    swatchRowHTML += '  <input type="color" value="' + hex + '" id="colorInput_' + index + '">';
-    swatchRowHTML += '</div>';
-
+	swatchRowHTML += '<div class="new-color-swatch" id="newSwatch_' + index + '" style="background-color:' + hex + '" title="Click to pick color"></div>';
+	
     var mergedHexHTML = '';
     if (mergedFrom.length > 1) {
         var hexParts = [];
@@ -990,50 +989,74 @@ function buildColorCard(index) {
 }
 
 function bindColorInput(index, originalHex) {
-    var input = document.getElementById('colorInput_' + index);
-    if (!input) return;
+    var swatch = document.getElementById('newSwatch_' + index);
+    if (!swatch) return;
 
-    // When native color picker changes → update everything including text field
-    input.addEventListener('input', function () {
-        var newHex = this.value;
-        colorSwaps[originalHex] = newHex;
-        document.getElementById('newSwatch_' + index).style.backgroundColor = newHex;
-        
-        // FIX: Sync the hex text input to match picker
-        var hexText = document.getElementById('hexInput_' + index);
-        if (hexText) hexText.value = newHex;
-        
-        var card = document.getElementById('colorCard_' + index);
-        var hexEl = document.getElementById('hexDisplay_' + index);
+    // Remove hidden native input if exists
+    var oldInput = document.getElementById('colorInput_' + index);
+    if (oldInput) oldInput.remove();
 
-        if (newHex.toLowerCase() !== originalHex.toLowerCase()) {
-            card.classList.add('changed');
-            hexEl.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex + '</span>';
-            hexEl.setAttribute('data-hex', newHex);
-        } else {
-            card.classList.remove('changed');
-            hexEl.innerHTML = '';
-            hexEl.textContent = originalHex;
-            hexEl.setAttribute('data-hex', originalHex);
-        }
+    swatch.style.cursor = 'pointer';
 
-        updateSwapCount();
+    swatch.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var currentHex = colorSwaps[originalHex] || originalHex;
+        cs.evalScript('pickColor("' + currentHex + '")', function(result) {
+            if (!result || result === 'null' || result.indexOf('error:') === 0) return;
+            var newHex = result.trim();
+            if (!/^#[0-9A-Fa-f]{6}$/.test(newHex)) return;
+
+            colorSwaps[originalHex] = newHex;
+            swatch.style.backgroundColor = newHex;
+
+            var hexInput = document.getElementById('hexInput_' + index);
+            if (hexInput) hexInput.value = newHex;
+
+            var card = document.getElementById('colorCard_' + index);
+            var hexEl = document.getElementById('hexDisplay_' + index);
+
+            if (newHex.toLowerCase() !== originalHex.toLowerCase()) {
+                card.classList.add('changed');
+                hexEl.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + newHex + '</span>';
+                hexEl.setAttribute('data-hex', newHex);
+            } else {
+                card.classList.remove('changed');
+                hexEl.innerHTML = '';
+                hexEl.textContent = originalHex;
+                hexEl.setAttribute('data-hex', originalHex);
+            }
+
+            updateSwapCount();
+        });
     });
 
-    // When text input changes manually → validate then update picker
+    // Keep hex text input binding
     var hexInput = document.getElementById('hexInput_' + index);
     if (hexInput) {
         hexInput.addEventListener('change', function () {
             var val = this.value.trim();
             if (!/^#/.test(val)) val = '#' + val;
-            
             if (/^#[0-9A-F]{6}$/i.test(val)) {
-                this.value = val; // normalize format
-                input.value = val; // sync picker
-                input.dispatchEvent(new Event('input')); // trigger above handler
+                this.value = val;
+                colorSwaps[originalHex] = val;
+                swatch.style.backgroundColor = val;
+
+                var card = document.getElementById('colorCard_' + index);
+                var hexEl = document.getElementById('hexDisplay_' + index);
+
+                if (val.toLowerCase() !== originalHex.toLowerCase()) {
+                    card.classList.add('changed');
+                    hexEl.innerHTML = '<span class="old-hex">' + originalHex + '</span> <span class="new-hex">' + val + '</span>';
+                    hexEl.setAttribute('data-hex', val);
+                } else {
+                    card.classList.remove('changed');
+                    hexEl.innerHTML = '';
+                    hexEl.textContent = originalHex;
+                    hexEl.setAttribute('data-hex', originalHex);
+                }
+                updateSwapCount();
             } else {
-                showToast('Invalid hex format');
-                // Revert to current valid color (from swap object or original)
+                showToast('Invalid hex');
                 this.value = colorSwaps[originalHex] || originalHex;
             }
         });
@@ -1422,8 +1445,6 @@ function loadPalette(index) {
                 var swatch = document.getElementById('newSwatch_' + cellId);
                 if (swatch) swatch.style.backgroundColor = newHex;
 
-                var input = document.getElementById('colorInput_' + cellId);
-                if (input) input.value = newHex;
 
                 var cell = document.getElementById('chainCell_' + cellId);
                 var hexEl = document.getElementById('hexDisplay_' + cellId);
@@ -1474,8 +1495,6 @@ function loadPalette(index) {
         var swatch2 = document.getElementById('newSwatch_' + i);
         if (swatch2) swatch2.style.backgroundColor = newHex2;
 
-        var input2 = document.getElementById('colorInput_' + i);
-        if (input2) input2.value = newHex2;
 
         // ✅ FIX 3: Sync the hex text field (your new <input type="text" class="hex-input">)
         var hexInput2 = document.getElementById('hexInput_' + i);
