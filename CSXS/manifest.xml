@@ -9,6 +9,10 @@
     <ExtensionList>
         <Extension Id="com.colorswapper.panel" Version="1.1.2"/>
     </ExtensionList>
+	<CEFCommandLine>
+		<Parameter>--enable-nodejs</Parameter>
+	</CEFCommandLine>
+
 
     <ExecutionEnvironment>
         <HostList>

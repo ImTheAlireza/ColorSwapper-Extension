@@ -5,12 +5,24 @@ var undoHistory = [];
 var MAX_UNDO_HISTORY = 10;
 var isAutoRescan = false;
 var scanDebounce = null; // ← ADD THIS
+const fs = require('fs');
+const https = require('https');
+const path = require('path');
+const { exec } = require('child_process');
+const os = require('os');
+
+// Assuming you have CSInterface initialized
+var csInterface = new CSInterface();
+var extPath = csInterface.getSystemPath(SystemPath.EXTENSION);
+var tempZipPath = path.join(os.tmpdir(), 'ColorSwapperUpdate.zip');
+
 
 
 var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
 
-var CURRENT_VERSION = '1.0.0'; // Fallback
-var VERSION_CHECK_URL = 'https://raw.githubusercontent.com/ImTheAlireza/ColorSwapper-Extension/main/version.json';
+var CURRENT_VERSION = '1.1.2'; 
+var VERSION_CHECK_URL = 'https://api.github.com/repos/ImTheAlireza/ColorSwapper-Extension/releases/latest';
+var pendingUpdateData = null;
 
 // Load version from manifest.xml
 (function loadVersionFromManifest() {
@@ -53,7 +65,6 @@ document.getElementById('authorLink').addEventListener('click', function (e) {
         }
     }
 });
-
 
 function getCleanExtPath() {
     var raw = cs.getSystemPath(SystemPath.EXTENSION);
@@ -137,12 +148,7 @@ function fetchText(url, callback) {
 }
 
 function checkForUpdates() {
-    if (!VERSION_CHECK_URL || VERSION_CHECK_URL.indexOf('YOUR_USERNAME') !== -1) {
-        log('Update check skipped — URL not configured');
-        return;
-    }
-
-    log('Checking for updates...');
+    log('Checking for updates via GitHub API...');
 
     fetchJSON(VERSION_CHECK_URL, function (err, data) {
         if (err) {
@@ -150,16 +156,25 @@ function checkForUpdates() {
             return;
         }
 
-        if (!data || !data.version) {
-            log('Invalid version data');
+        if (!data || !data.tag_name) {
+            log('Invalid release data from GitHub');
             return;
         }
 
-        log('Remote version: ' + data.version + ' | Local: ' + CURRENT_VERSION);
+        // Clean the "v" from "v1.2.0"
+        var remoteVersion = data.tag_name.replace('v', '');
+        log('Remote version: ' + remoteVersion + ' | Local: ' + CURRENT_VERSION);
 
-        if (isNewerVersion(data.version, CURRENT_VERSION)) {
-            showUpdateBanner(data);
-        } else {
+		if (isNewerVersion(remoteVersion, CURRENT_VERSION)) {
+			// Assuming your zip is the first asset attached to the release
+			var downloadUrl = data.assets[0].browser_download_url; 
+			
+			showUpdateBanner({
+				version: remoteVersion,
+				changelog: data.name || 'New release available',
+				zipUrl: downloadUrl // Pass the zip URL here
+			});
+		} else {
             log('Extension is up to date');
         }
     });
@@ -169,262 +184,10 @@ var pendingUpdateData = null;
 
 function showUpdateBanner(data) {
     pendingUpdateData = data;
-
     document.getElementById('updateVersion').textContent = data.version;
-    document.getElementById('updateChangelog').textContent = data.changelog || '';
+    document.getElementById('updateChangelog').textContent = data.changelog;
     document.getElementById('updateBanner').classList.remove('hidden');
 }
-
-function performUpdate() {
-  if (!pendingUpdateData) return;
-  if (!cepFS) {
-    showToast('Filesystem not available');
-    return;
-  }
-  
-  var data = pendingUpdateData;
-  var files = data.files;
-  var baseUrl = data.baseUrl;
-  
-  if (!files || files.length === 0 || !baseUrl) {
-    showToast('Invalid update data');
-    return;
-  }
-  
-  // SECURITY: Validate all files before downloading
-  var validFiles = [];
-  for (var i = 0; i < files.length; i++) {
-    if (validateUpdateFile(files[i])) {
-      validFiles.push(files[i]);
-    }
-  }
-  
-  if (validFiles.length === 0) {
-    showToast('No valid files to update');
-    return;
-  }
-  
-  // Continue with validFiles instead of files
-  var extPath = getCleanExtPath();
-  var btn = document.getElementById('updateBtn');
-  btn.disabled = true;
-  btn.textContent = 'Downloading...';
-  
-  log('Updating ' + validFiles.length + ' file(s) from ' + baseUrl);
-  log('Extension path: ' + extPath);
-  
-  var downloaded = [];
-  var completed = 0;
-  var total = validFiles.length;
-  var errors = [];
-  
-  for (var i = 0; i < validFiles.length; i++) {
-    (function (fileEntry) {
-      var remotePath, localPath;
-      if (typeof fileEntry === 'string') {
-        remotePath = fileEntry;
-        localPath = fileEntry;
-      } else {
-        remotePath = fileEntry.remote;
-        localPath = fileEntry.local;
-      }
-      
-      var url = baseUrl + remotePath;
-      log('Downloading: ' + remotePath);
-      
-      fetchText(url, function (err, content) {
-        completed++;
-        if (err) {
-          errors.push(remotePath + ': ' + err.message);
-          log('Download failed: ' + remotePath + ' — ' + err.message);
-        } else if (!content || content.length === 0) {
-          // SECURITY: Reject empty downloads
-          errors.push(remotePath + ': empty file');
-          log('Download rejected: ' + remotePath + ' (empty)');
-        } else {
-          downloaded.push({
-            localPath: localPath,
-            content: content
-          });
-          log('Downloaded: ' + remotePath + ' (' + content.length + ' bytes)');
-        }
-        
-        btn.textContent = 'Downloading ' + completed + '/' + total;
-        
-        if (completed === total) {
-          if (errors.length > 0) {
-            btn.textContent = 'Update Failed';
-            setTimeout(function () { 
-              btn.textContent = 'Retry'; 
-              btn.disabled = false; 
-            }, 2000);
-            setStatus('Download failed: ' + errors.join(', '), 'error');
-            log('Update aborted — download errors');
-          } else {
-            writeUpdateFiles(downloaded, extPath, btn);
-          }
-        }
-      });
-    })(validFiles[i]);
-  }
-}
-
-function writeUpdateFiles(downloaded, extPath, btn) {
-  btn.textContent = 'Installing...';
-  
-  var writeErrors = [];
-  var tempFiles = [];
-  
-  // Phase 1: Write to temp files
-  for (var i = 0; i < downloaded.length; i++) {
-    var entry = downloaded[i];
-    try {
-      var filePath = extPath + '/' + entry.localPath;
-      filePath = filePath.replace(/\\/g, '/').replace(/\/\//g, '/');
-      
-      var dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
-      ensureDirCEP(dirPath);
-      
-      // Write to .tmp file first
-      var tempPath = filePath + '.tmp';
-      log('Writing temp: ' + tempPath);
-      
-      var result = cepFS.writeFile(tempPath, entry.content);
-      
-      if (result.err !== 0) {
-        writeErrors.push(entry.localPath + ': write error ' + result.err);
-        log('Temp write failed: ' + entry.localPath);
-      } else {
-        // Validate file was written
-        var readResult = cepFS.readFile(tempPath);
-        if (readResult.err !== 0 || readResult.data.length === 0) {
-          writeErrors.push(entry.localPath + ': validation failed');
-          log('Temp validation failed: ' + entry.localPath);
-        } else {
-          tempFiles.push({
-            temp: tempPath,
-            final: filePath,
-            localPath: entry.localPath
-          });
-          log('Temp validated: ' + tempPath + ' (' + readResult.data.length + ' bytes)');
-        }
-      }
-    } catch (e) {
-      writeErrors.push(entry.localPath + ': ' + e.message);
-      log('Temp write exception: ' + e.message);
-    }
-  }
-  
-  // If any temp writes failed, abort
-  if (writeErrors.length > 0) {
-    // Clean up temp files
-    for (var t = 0; t < tempFiles.length; t++) {
-      try {
-        cepFS.deleteFile(tempFiles[t].temp);
-      } catch (e) {}
-    }
-    
-    btn.textContent = 'Install Failed';
-    setStatus('Write errors: ' + writeErrors.join(', '), 'error');
-    setTimeout(function () { 
-      btn.textContent = 'Retry'; 
-      btn.disabled = false; 
-    }, 3000);
-    return;
-  }
-  
-  // Phase 2: Replace original files
-  btn.textContent = 'Replacing files...';
-  var replaceErrors = [];
-  
-  for (var j = 0; j < tempFiles.length; j++) {
-    var tf = tempFiles[j];
-    try {
-      // Delete original if exists
-      var stat = cepFS.stat(tf.final);
-      if (stat.err === 0) {
-        var delResult = cepFS.deleteFile(tf.final);
-        if (delResult.err !== 0) {
-          replaceErrors.push(tf.localPath + ': cannot delete original');
-          continue;
-        }
-      }
-      
-      // Rename temp to final
-      // CEP doesn't have rename, so read+write+delete
-      var tempData = cepFS.readFile(tf.temp);
-      if (tempData.err === 0) {
-        var finalResult = cepFS.writeFile(tf.final, tempData.data);
-        if (finalResult.err === 0) {
-          cepFS.deleteFile(tf.temp);
-          log('Replaced: ' + tf.final);
-        } else {
-          replaceErrors.push(tf.localPath + ': final write failed');
-        }
-      }
-    } catch (e) {
-      replaceErrors.push(tf.localPath + ': ' + e.message);
-    }
-  }
-  
-  if (replaceErrors.length > 0) {
-    btn.textContent = 'Partial Update';
-    setStatus('Some files failed: ' + replaceErrors.join(', '), 'error');
-    setTimeout(function () { 
-      btn.textContent = 'Retry Failed'; 
-      btn.disabled = false; 
-    }, 3000);
-  } else {
-    btn.textContent = 'Updated!';
-    setStatus('Update installed! Reloading...', 'success');
-    log('Update complete — reloading in 1.5s');
-    setTimeout(function () {
-      location.reload();
-    }, 1500);
-  }
-}
-
-
-function validateUpdateFile(fileEntry) {
-  var remotePath, localPath;
-  
-  if (typeof fileEntry === 'string') {
-    remotePath = fileEntry;
-    localPath = fileEntry;
-  } else {
-    remotePath = fileEntry.remote;
-    localPath = fileEntry.local;
-  }
-  
-  // Whitelist of allowed files
-  var allowedFiles = [
-    'client/app.js',
-    'client/style.css',
-    'client/index.html',
-    'client/CSInterface.js',
-    'host/hostScript.jsx',
-    'CSXS/manifest.xml',
-    'version.json'
-  ];
-  
-  // Check if file is in whitelist
-  if (allowedFiles.indexOf(localPath) === -1) {
-    log('SECURITY: Blocked non-whitelisted file: ' + localPath);
-    return false;
-  }
-  
-  // Reject path traversal attempts
-  if (localPath.indexOf('..') !== -1 || 
-      localPath.indexOf('\\') !== -1 ||
-      localPath.charAt(0) === '/' ||
-      localPath.indexOf(':') !== -1) {
-    log('SECURITY: Blocked suspicious path: ' + localPath);
-    return false;
-  }
-  
-  return true;
-}
-
 
 function ensureDirCEP(dirPath) {
     var readResult = cepFS.readdir(dirPath);
@@ -438,9 +201,62 @@ function ensureDirCEP(dirPath) {
     }
 }
 
+function downloadAndApplyUpdate(url) {
+    log('Downloading update from: ' + url);
+
+    // GitHub releases redirect to AWS, so we must handle the 302 redirect
+    https.get(url, function(response) {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+            log('Following redirect...');
+            return downloadAndApplyUpdate(response.headers.location);
+        }
+
+        var file = fs.createWriteStream(tempZipPath);
+        response.pipe(file);
+
+        file.on('finish', function() {
+            file.close();
+            log('Download complete. Extracting...');
+            document.getElementById('updateBtn').innerText = "Installing...";
+            extractZip();
+        });
+    }).on('error', function(err) {
+        fs.unlink(tempZipPath, () => {});
+        log('Download error: ' + err.message);
+        document.getElementById('updateBtn').innerText = "Update Failed";
+    });
+}
+
+function extractZip() {
+    // We use native PowerShell to extract so we don't need external NPM zip libraries
+    var psCommand = 'powershell -Command "Expand-Archive -Path \'' + tempZipPath + '\' -DestinationPath \'' + extPath + '\' -Force"';
+
+    exec(psCommand, function(error, stdout, stderr) {
+        if (error) {
+            log('Extraction failed: ' + error.message);
+            document.getElementById('updateBtn').innerText = "Update Failed";
+            return;
+        }
+        
+        log('Update applied successfully! Reloading...');
+        
+        // Clean up the temp file
+        fs.unlink(tempZipPath, () => {});
+        
+        // Reload the extension to apply the new files
+        window.location.reload();
+    });
+}
+
 document.getElementById('updateBtn').addEventListener('click', function () {
-    performUpdate();
+    if (pendingUpdateData && pendingUpdateData.zipUrl) {
+        document.getElementById('updateBtn').innerText = "Downloading...";
+        document.getElementById('updateBtn').disabled = true;
+        downloadAndApplyUpdate(pendingUpdateData.zipUrl);
+    }
 });
+
+
 
 document.getElementById('dismissUpdate').addEventListener('click', function () {
     document.getElementById('updateBanner').classList.add('hidden');
@@ -856,7 +672,6 @@ function escapeHTML(str) {
         .replace(/"/g, '&quot;');
 }
 
-
 function bindKeyframeInput(cardIndex, cellIndex, originalHex) {
     var cellId = cardIndex + '_' + cellIndex;
     var swapKey = 'kf:' + cardIndex + ':' + cellIndex;
@@ -1119,7 +934,6 @@ function bindColorInput(index, originalHex) {
         });
     });
 }
-
 
 function bindResetButton(index) {
     var btn = document.getElementById('resetBtn_' + index);
@@ -1751,7 +1565,6 @@ document.getElementById('undoBtn').addEventListener('click', function () {
         }
     });
 });
-
 
 function openCustomColorPicker(initialHex, callback) {
     var overlay = document.getElementById('colorPickerOverlay');
