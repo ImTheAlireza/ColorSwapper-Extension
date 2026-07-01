@@ -4,21 +4,25 @@ var colorSwaps = {};
 var undoHistory = [];
 var MAX_UNDO_HISTORY = 10;
 var isAutoRescan = false;
-var scanDebounce = null; // ← ADD THIS
-const fs = require('fs');
-const https = require('https');
-const path = require('path');
-const { exec } = require('child_process');
-const os = require('os');
+var scanDebounce = null;
 
-// Assuming you have CSInterface initialized
-var csInterface = new CSInterface();
-var extPath = csInterface.getSystemPath(SystemPath.EXTENSION);
-var tempZipPath = path.join(os.tmpdir(), 'ColorSwapperUpdate.zip');
+// 1. Safely load Node.js modules so it doesn't crash if Node is disabled
+var fs, https, path, exec, os, tempZipPath;
+if (typeof require !== 'undefined') {
+    fs = require('fs');
+    https = require('https');
+    path = require('path');
+    exec = require('child_process').exec;
+    os = require('os');
+    tempZipPath = path.join(os.tmpdir(), 'ColorSwapperUpdate.zip');
+} else {
+    // If you see this, you didn't restart After Effects!
+    alert("CRITICAL ERROR: Node.js is not enabled. Please completely restart After Effects.");
+}
 
-
-
-var cepFS = new CSInterface().getSystemPath ? window.cep.fs : null;
+// 2. Initialize Extension Paths safely (No duplicates)
+var cepFS = (window.cep && window.cep.fs) ? window.cep.fs : null;
+var extPath = cs.getSystemPath(SystemPath.EXTENSION);
 
 var CURRENT_VERSION = '1.1.2'; 
 var VERSION_CHECK_URL = 'https://api.github.com/repos/ImTheAlireza/ColorSwapper-Extension/releases/latest';
@@ -228,9 +232,13 @@ function downloadAndApplyUpdate(url) {
 }
 
 function extractZip() {
-    // We use native PowerShell to extract so we don't need external NPM zip libraries
-    var psCommand = 'powershell -Command "Expand-Archive -Path \'' + tempZipPath + '\' -DestinationPath \'' + extPath + '\' -Force"';
-
+    // Use the existing getCleanExtPath() function to strip file:// properly
+    var cleanPath = getCleanExtPath();
+    
+    var psCommand = 'powershell -Command "Expand-Archive -Path \'' + tempZipPath + '\' -DestinationPath \'' + cleanPath + '\' -Force"';
+    
+    log('Extracting to: ' + cleanPath);
+    
     exec(psCommand, function(error, stdout, stderr) {
         if (error) {
             log('Extraction failed: ' + error.message);
@@ -239,12 +247,11 @@ function extractZip() {
         }
         
         log('Update applied successfully! Reloading...');
-        
-        // Clean up the temp file
         fs.unlink(tempZipPath, () => {});
         
-        // Reload the extension to apply the new files
-        window.location.reload();
+        setTimeout(function() {
+            window.location.reload();
+        }, 1000);
     });
 }
 
